@@ -17,15 +17,15 @@ This project implements a distributed MapReduce system using gRPC for word count
 2. Virtual environment activated (venv folder is already set up)
 3. gRPC and protobuf libraries (already installed in venv)
 
-## How to Run the Program
+## How to Run the Program (cd to the working dir first)
 
 ### Step 1: Generate gRPC Code (if not already done)
 ```bash
 # Activate virtual environment
-venv\Scripts\activate
+venv\Scripts\activate.bat
 
 # Generate gRPC Python code
-python gRPC_code_gen.py
+venv\Scripts\python.exe gRPC_code_gen.py
 ```
 
 ### Step 2: Run Workers (Terminal 1 & 2)
@@ -33,13 +33,11 @@ Open two separate terminal windows and run:
 
 **Terminal 1:**
 ```bash
-cd "C:\Users\ASUS\Documents\CST435\Assignment 1"
 venv\Scripts\python.exe map_reduce_Worker.py 50051
 ```
 
 **Terminal 2:**
 ```bash
-cd "C:\Users\ASUS\Documents\CST435\Assignment 1"
 venv\Scripts\python.exe map_reduce_Worker.py 50052
 ```
 
@@ -47,7 +45,6 @@ venv\Scripts\python.exe map_reduce_Worker.py 50052
 Open a third terminal window and run:
 
 ```bash
-cd "C:\Users\ASUS\Documents\CST435\Assignment 1"
 venv\Scripts\python.exe map_reduce_Master.py
 ```
 
@@ -74,7 +71,7 @@ Use the provided Docker setup for testing across multiple containers.
 
 ## Troubleshooting
 
-1. **Port already in use**: Change ports in `WORKER_ADDRESSES` in `map_reduce_Master.py`
+1. **Port already in use**: Change ports in `WORKER_ADDRESSES` in `map_reduce_Master_docker.py`
 2. **Module not found**: Ensure virtual environment is activated
 3. **Connection refused**: Make sure workers are running before starting master
 4. **No input files**: Ensure `Bible_KJV.txt` is in the `input_data/` directory
