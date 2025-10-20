@@ -1,0 +1,30 @@
+services:
+  worker1:
+    build: .
+    command: ["python", "map_reduce_Worker.py", "50051"]
+    ports:
+      - "50051:50051"
+    networks:
+      - mapreduce-network
+
+  worker2:
+    build: .
+    command: ["python", "map_reduce_Worker.py", "50052"]
+    ports:
+      - "50052:50052"
+    networks:
+      - mapreduce-network
+  master:
+    build: .
+    command: ["python", "map_reduce_Master_docker.py"]
+    volumes:
+      - ./input_data:/app/input_data
+    depends_on:
+      - worker1
+      - worker2
+    networks:
+      - mapreduce-network
+
+networks:
+  mapreduce-network:
+    driver: bridge
