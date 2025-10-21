@@ -1,14 +1,13 @@
 import grpc
 import os
-from collections import defaultdict
 import time
 import concurrent.futures
+from collections import defaultdict
 
-# Import the generated classes
+# Import generated gRPC code
 import gRPC_service_defination_pb2 as mapreduce_pb2
 import gRPC_service_defination_pb2_grpc as mapreduce_pb2_grpc
 
-# --- CONFIGURATION FOR DOCKER ---
 WORKER_ADDRESSES = [
     'worker1:50051',
     'worker2:50052',
@@ -16,8 +15,9 @@ WORKER_ADDRESSES = [
 INPUT_DIR = 'input_data'
 MAX_CHUNK_SIZE = 200000
 
+
 def split_text_into_chunks(text, max_size):
-    """Splits text into manageable chunks."""
+    """Splits large text into chunks by spaces."""
     if len(text) <= max_size:
         return [text]
     chunks, start = [], 0
@@ -31,130 +31,78 @@ def split_text_into_chunks(text, max_size):
         start = end
     return chunks
 
+
 def run_mapreduce():
-    """Orchestrates the entire MapReduce job with Docker networking."""
     start_time = time.time()
 
-    # 1. Read input data from files
+    # 1. Load input files and split into chunks
     input_splits = []
-    try:
-        filenames = [f for f in os.listdir(INPUT_DIR) if f.endswith(".txt")]
-        if not filenames:
-            print(f"Error: No .txt files found in '{INPUT_DIR}' directory.")
-            return
-        for filename in filenames:
-            with open(os.path.join(INPUT_DIR, filename), 'r', encoding='utf-8') as f:
-                file_content = f.read()
-            input_splits.extend(split_text_into_chunks(file_content, MAX_CHUNK_SIZE))
-    except (FileNotFoundError, UnicodeDecodeError) as e:
-        print(f"Error reading input files: {e}")
+    filenames = [f for f in os.listdir(INPUT_DIR) if f.endswith(".txt")]
+    if not filenames:
+        print(f"No .txt files found in '{INPUT_DIR}'")
         return
+    for filename in filenames:
+        with open(os.path.join(INPUT_DIR, filename), 'r', encoding='utf-8') as f:
+            text = f.read()
+        input_splits.extend(split_text_into_chunks(text, MAX_CHUNK_SIZE))
 
-    channels, stubs = {}, {}
+    # 2. Initialize worker channels
     print("--- Initializing connections to workers ---")
-    try:
-        for address in WORKER_ADDRESSES:
-            options = [
-                ('grpc.max_send_message_length', 50 * 1024 * 1024),
-                ('grpc.max_receive_message_length', 50 * 1024 * 1024),
-            ]
-            channel = grpc.insecure_channel(address, options=options)
-            channels[address] = channel
-            stubs[address] = mapreduce_pb2_grpc.MapReduceStub(channel)
-            print(f"Channel created for {address}")
-    except Exception as e:
-        print(f"Failed to create gRPC channels: {e}")
-        return
+    stubs = {}
+    for addr in WORKER_ADDRESSES:
+        options = [
+            ('grpc.max_send_message_length', 50 * 1024 * 1024),
+            ('grpc.max_receive_message_length', 50 * 1024 * 1024),
+        ]
+        channel = grpc.insecure_channel(addr, options=options)
+        stubs[addr] = mapreduce_pb2_grpc.MapReduceStub(channel)
+        print(f"Connected to {addr}")
 
-    try:
-        # --- MAP PHASE (NOW PARALLELIZED) ---
-        print("\n--- Starting PARALLEL MAP Phase ---")
-        intermediate_data = []
-        
-        def send_map_task(task_data):
-            """Helper function to send a single map task."""
-            task_id, content_split = task_data
-            worker_address = WORKER_ADDRESSES[task_id % len(WORKER_ADDRESSES)]
-            try:
-                stub = stubs[worker_address]
-                request = mapreduce_pb2.MapRequest(task_id=str(task_id), input_content=content_split)
-                print(f"Assigning Map task {task_id} to {worker_address}...")
-                response = stub.MapTask(request, timeout=120) # Increased timeout for heavy loads
-                return response.intermediate_results
-            except grpc.RpcError as e:
-                print(f"  ERROR on map task {task_id} at {worker_address}. Details: {e.details()}")
-                return []
+    # 3. Send text chunks directly to workers for processing
+    print("\n--- Distributing chunks to workers ---")
+    def send_task(task_data):
+        task_id, text = task_data
+        worker_addr = WORKER_ADDRESSES[task_id % len(WORKER_ADDRESSES)]
+        stub = stubs[worker_addr]
+        request = mapreduce_pb2.MapRequest(task_id=str(task_id), input_content=text)
+        try:
+            response = stub.FullProcessTask(request, timeout=120)
+            partial_result = {kv.key: int(kv.value) for kv in response.intermediate_results}
+            print(f"Task {task_id} done by {worker_addr} ({len(partial_result)} unique words)")
+            return partial_result
+        except grpc.RpcError as e:
+            print(f"Task {task_id} failed on {worker_addr}: {e.details()}")
+            return {}
 
-        # Create a list of tasks to submit
-        map_tasks = list(enumerate(input_splits))
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(WORKER_ADDRESSES) * 2) as executor:
-            future_to_results = {executor.submit(send_map_task, task): task for task in map_tasks}
-            for future in concurrent.futures.as_completed(future_to_results):
-                try:
-                    results = future.result()
-                    intermediate_data.extend(results)
-                except Exception as e:
-                    task_id, _ = future_to_results[future]
-                    print(f"  ERROR processing map task {task_id}: {e}")
+    map_tasks = list(enumerate(input_splits))
+    all_results = []
 
-        if not intermediate_data:
-            print("Map phase produced no results. Aborting.")
-            return
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(WORKER_ADDRESSES)) as executor:
+        futures = [executor.submit(send_task, t) for t in map_tasks]
+        for f in concurrent.futures.as_completed(futures):
+            all_results.append(f.result())
 
-        print("--- MAP Phase Complete ---")
-
-        # --- SHUFFLE PHASE ---
-        print("\n--- Starting SHUFFLE Phase ---")
-        shuffled_data = defaultdict(list)
-        for kv_pair in intermediate_data:
-            shuffled_data[kv_pair.key].append(kv_pair.value)
-        print("--- SHUFFLE Phase Complete ---")
-
-        # --- REDUCE PHASE (ALREADY PARALLEL) ---
-        print("\n--- Starting PARALLEL REDUCE Phase ---")
-        final_results = {}
-        reduce_tasks = list(shuffled_data.items())
-        
-        def send_reduce_task(task_data):
-            """Helper function to send a single reduce task."""
-            key, values = task_data
-            worker_index = hash(key) % len(WORKER_ADDRESSES)
-            worker_address = WORKER_ADDRESSES[worker_index]
-            try:
-                stub = stubs[worker_address]
-                request = mapreduce_pb2.ReduceRequest(reduce_key=key, values=values)
-                response = stub.ReduceTask(request, timeout=120)
-                return (response.reduce_key, int(response.result_value))
-            except grpc.RpcError as e:
-                print(f"  ERROR on reduce task for key '{key}' at {worker_address}. Details: {e.details()}")
-                return (key, 0)
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(WORKER_ADDRESSES) * 4) as executor:
-            future_to_task = {executor.submit(send_reduce_task, task): task for task in reduce_tasks}
-            for future in concurrent.futures.as_completed(future_to_task):
-                try:
-                    key, count = future.result()
-                    final_results[key] = count
-                except Exception as e:
-                    task = future_to_task[future]
-                    print(f"  ERROR processing reduce task {task}: {e}")
-
-        print("--- REDUCE Phase Complete ---\n")
-
-    finally:
-        print("--- Closing all worker connections ---")
-        for address, channel in channels.items():
-            channel.close()
-        print("--- All connections closed ---")
+    # 4. Merge all dictionaries into final result
+    print("\n--- Merging worker results ---")
+    final_counts = defaultdict(int)
+    for partial in all_results:
+        for word, count in partial.items():
+            final_counts[word] += count
 
     end_time = time.time()
-    
-    print("\n----------- MAPREDUCE RESULTS -----------")
-    for key, value in sorted(final_results.items()):
-        print(f"{key}: {value}")
+    print("\n----------- FINAL WORD COUNTS -----------")
+    for word, count in sorted(final_counts.items()):
+        print(f"{word}: {count}")
     print("-----------------------------------------")
-    print(f"Total execution time: {end_time - start_time:.4f} seconds")
+    
+    # Calculate and print statistics
+    total_words = sum(final_counts.values())
+    total_unique_words = len(final_counts)
+    print(f"Total txt file processed: {len(filenames)}")
+    print(f"Total words: {total_words}")
+    print(f"Total unique words: {total_unique_words}")
+    print(f"Total execution time: {end_time - start_time:.2f} s")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     run_mapreduce()

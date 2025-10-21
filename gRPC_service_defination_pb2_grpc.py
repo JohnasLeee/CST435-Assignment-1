@@ -45,6 +45,11 @@ class MapReduceStub(object):
                 request_serializer=gRPC__service__defination__pb2.ReduceRequest.SerializeToString,
                 response_deserializer=gRPC__service__defination__pb2.ReduceResponse.FromString,
                 _registered_method=True)
+        self.FullProcessTask = channel.unary_unary(
+                '/mapreduce.MapReduce/FullProcessTask',
+                request_serializer=gRPC__service__defination__pb2.MapRequest.SerializeToString,
+                response_deserializer=gRPC__service__defination__pb2.MapResponse.FromString,
+                _registered_method=True)
 
 
 class MapReduceServicer(object):
@@ -65,6 +70,14 @@ class MapReduceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def FullProcessTask(self, request, context):
+        """Master calls this RPC to let a worker handle the *entire* process:
+        perform mapping and local reduction before returning results.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_MapReduceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -77,6 +90,11 @@ def add_MapReduceServicer_to_server(servicer, server):
                     servicer.ReduceTask,
                     request_deserializer=gRPC__service__defination__pb2.ReduceRequest.FromString,
                     response_serializer=gRPC__service__defination__pb2.ReduceResponse.SerializeToString,
+            ),
+            'FullProcessTask': grpc.unary_unary_rpc_method_handler(
+                    servicer.FullProcessTask,
+                    request_deserializer=gRPC__service__defination__pb2.MapRequest.FromString,
+                    response_serializer=gRPC__service__defination__pb2.MapResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -134,6 +152,33 @@ class MapReduce(object):
             '/mapreduce.MapReduce/ReduceTask',
             gRPC__service__defination__pb2.ReduceRequest.SerializeToString,
             gRPC__service__defination__pb2.ReduceResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def FullProcessTask(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mapreduce.MapReduce/FullProcessTask',
+            gRPC__service__defination__pb2.MapRequest.SerializeToString,
+            gRPC__service__defination__pb2.MapResponse.FromString,
             options,
             channel_credentials,
             insecure,

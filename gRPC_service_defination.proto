@@ -1,4 +1,8 @@
-// This file defines the gRPC service and message types for our MapReduce framework.
+// =======================================================
+// MapReduce gRPC Service Definition
+// Defines the communication protocol between Master and Workers
+// Includes support for map, reduce, and full-process tasks.
+// =======================================================
 
 syntax = "proto3";
 
@@ -11,11 +15,15 @@ service MapReduce {
 
   // Master calls this RPC to assign a Reduce task to a worker.
   rpc ReduceTask (ReduceRequest) returns (ReduceResponse) {}
+
+  // Master calls this RPC to let a worker handle the *entire* process:
+  // perform mapping and local reduction before returning results.
+  rpc FullProcessTask (MapRequest) returns (MapResponse) {}
 }
 
 // ============== Map Task Messages ==============
 
-// The request message containing the data for a map task.
+// The request message containing the data for a map (or full) task.
 message MapRequest {
   string task_id = 1;       // A unique ID for this task.
   string input_content = 2; // The chunk of text to be processed.
@@ -27,7 +35,8 @@ message KeyValue {
   string value = 2;
 }
 
-// The response message containing the intermediate results from a map task.
+// The response message containing the intermediate or final results
+// from a map or full-process task.
 message MapResponse {
   string task_id = 1;
   repeated KeyValue intermediate_results = 2; // A list of key-value pairs.
@@ -38,7 +47,7 @@ message MapResponse {
 
 // The request message for a reduce task.
 message ReduceRequest {
-  string reduce_key = 1;     // The key to be reduced (e.g., a specific word).
+  string reduce_key = 1;      // The key to be reduced (e.g., a specific word).
   repeated string values = 2; // The list of values associated with the key (e.g., ["1", "1", "1"]).
 }
 
