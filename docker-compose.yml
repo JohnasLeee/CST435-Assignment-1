@@ -14,6 +14,14 @@ services:
       - "50052:50052"
     networks:
       - mapreduce-network
+
+  worker3:
+    build: .
+    command: ["python", "map_reduce_Worker.py", "50053"]
+    ports:
+      - "50053:50053"
+    networks:
+      - mapreduce-network
   master:
     build: .
     command: ["python", "map_reduce_Master_docker.py"]
@@ -22,6 +30,7 @@ services:
     depends_on:
       - worker1
       - worker2
+      - worker3
     networks:
       - mapreduce-network
 

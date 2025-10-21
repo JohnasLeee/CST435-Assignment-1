@@ -11,6 +11,7 @@ import gRPC_service_defination_pb2_grpc as mapreduce_pb2_grpc
 WORKER_ADDRESSES = [
     'worker1:50051',
     'worker2:50052',
+    'worker2:50053',
 ]
 INPUT_DIR = 'input_data'
 MAX_CHUNK_SIZE = 200000
