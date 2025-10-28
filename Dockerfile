@@ -1,21 +1,22 @@
-# Dockerfile for MapReduce gRPC Workers
-FROM python:3.9-slim
+FROM ubuntu:22.04
 
-# Set working directory
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    libeigen3-dev \
+    nlohmann-json3-dev \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Copy requirements and install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY . /app
 
-# Copy application files
-COPY . .
+RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+ && cmake --build build -j
 
-# Generate gRPC code
-RUN python gRPC_code_gen.py
+CMD ["/app/build/normalizer_service"]
 
-# Expose port
-EXPOSE 50051
-
-# Default command (can be overridden)
-CMD ["python", "map_reduce_Worker.py", "50051"]
+ 

@@ -1,39 +1,48 @@
+version: '3.9'
+
 services:
-  worker1:
-    build: .
-    command: ["python", "map_reduce_Worker.py", "50051"]
+  normalizer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: normalizer_service
+    container_name: normalizer
+    environment:
+      - COMM_TYPE=REST
+      - LOG_DEBUG=1
+      - NORMALIZER_PORT=8080
     ports:
-      - "50051:50051"
-    networks:
-      - mapreduce-network
+      - "8080:8080"
 
-  worker2:
-    build: .
-    command: ["python", "map_reduce_Worker.py", "50052"]
-    ports:
-      - "50052:50052"
-    networks:
-      - mapreduce-network
-
-  worker3:
-    build: .
-    command: ["python", "map_reduce_Worker.py", "50053"]
-    ports:
-      - "50053:50053"
-    networks:
-      - mapreduce-network
-  master:
-    build: .
-    command: ["python", "map_reduce_Master_docker.py"]
+  alpha:
+    build:
+      context: .
+      dockerfile: alpha.Dockerfile
+    container_name: alpha
+    working_dir: /app
     volumes:
-      - ./input_data:/app/input_data
+      - ./:/app
+    environment:
+      - COMM_TYPE=REST
+      - NORMALIZER_HOST=normalizer
+      - NORMALIZER_PORT=8080
+    command: ["python", "alpha_service.py"]
     depends_on:
-      - worker1
-      - worker2
-      - worker3
-    networks:
-      - mapreduce-network
+      - normalizer
+
+  master:
+    build:
+      context: .
+      dockerfile: master.Dockerfile
+    container_name: master
+    working_dir: /app
+    volumes:
+      - ./:/app
+    command: ["python", "master.py"]
+    depends_on:
+      - alpha
 
 networks:
-  mapreduce-network:
-    driver: bridge
+  default:
+    name: cst435_net
+
