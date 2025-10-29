@@ -39,7 +39,7 @@ def get_SP500() -> pd.DataFrame:
 
     try:
         data = yf.download(
-            tickers=tickers[:50],
+            tickers=tickers,
             start="2013-01-01",
             end="2023-12-31",
             interval="1d",

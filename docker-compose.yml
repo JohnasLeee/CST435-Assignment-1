@@ -1,6 +1,22 @@
-version: '3.9'
-
 services:
+  backtester:
+    build:
+      context: .
+      dockerfile: alpha.Dockerfile
+    container_name: backtester
+    working_dir: /app
+    volumes:
+      - ./:/app
+    environment:
+      - ALPHA_HOST=alpha
+      - ALPHA_PORT=8081
+      - BACKTESTER_PORT=8082
+      - MASTER_HOST=master
+      - MASTER_PORT=8083
+    ports:
+      - "8082:8082"
+    command: ["python", "backtester_service.py"]
+
   normalizer:
     build:
       context: .
@@ -10,6 +26,8 @@ services:
     environment:
       - LOG_DEBUG=1
       - NORMALIZER_PORT=8080
+      - BACKTESTER_HOST=backtester
+      - BACKTESTER_PORT=8082
     ports:
       - "8080:8080"
 
@@ -24,9 +42,13 @@ services:
     environment:
       - NORMALIZER_HOST=normalizer
       - NORMALIZER_PORT=8080
+      - ALPHA_PORT=8081
+    ports:
+      - "8081:8081"
     command: ["python", "alpha_service.py"]
     depends_on:
       - normalizer
+    restart: unless-stopped
 
   master:
     build:
@@ -36,9 +58,13 @@ services:
     working_dir: /app
     volumes:
       - ./:/app
+    environment:
+      - ALPHA_HOST=alpha
+      - ALPHA_PORT=8081
+      - MASTER_PORT=8083
+    ports:
+      - "8083:8083"
     command: ["python", "master.py"]
-    depends_on:
-      - alpha
 
 networks:
   default:

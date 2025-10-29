@@ -34,14 +34,19 @@ class RestClient(ICommClient):
         return self._connected
 
     def send_data(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        # POST to /normalize; normalizer logs and returns simple text. We ignore body.
+        # POST to /normalize; normalizer returns normalized weights
         url = f"{self.base_url}/normalize"
         headers = {"Content-Type": "application/json"}
         data = json.dumps(payload)
         resp = requests.post(url, headers=headers, data=data, timeout=120)
         resp.raise_for_status()
-        # Normalizer doesn't return weights; return a processed to indicate success
-        return {"status": "processed"}
+        # Normalizer returns normalized weights as JSON
+        try:
+            normalized_weights = resp.json()
+            return normalized_weights
+        except:
+            # Fallback if response is not JSON
+            return {"status": "processed"}
 
     def disconnect(self) -> None:
         self._connected = False

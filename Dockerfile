@@ -6,9 +6,10 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     git \
+    curl \
     libeigen3-dev \
     nlohmann-json3-dev \
- && rm -rf /var/lib/apt/lists/*
+&& rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

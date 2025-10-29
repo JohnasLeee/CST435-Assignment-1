@@ -8,7 +8,9 @@ import json
 import logging
 import pandas as pd
 import numpy as np
+import threading
 from typing import Dict, Any, Optional
+from flask import Flask, request, jsonify
 
 # Add parent directory to path to import utils
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,6 +24,134 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Flask app for receiving execution commands from master
+app = Flask(__name__)
+execution_started = False
+alpha_service_instance = None
+
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint"""
+    return jsonify({"status": "healthy", "service": "alpha", "execution_started": execution_started}), 200
+
+
+@app.route('/execute', methods=['POST'])
+def execute_command():
+    """Receive execution command from master and acknowledge receipt"""
+    global execution_started, alpha_service_instance
+    
+    try:
+        data = request.get_json()
+        command = data.get('command', '')
+        
+        logger.info(f"[AlphaService] Received execution command from master: {command}")
+        
+        if command == "start_processing" and not execution_started:
+            execution_started = True
+            
+            # Acknowledge receipt to master
+            response = {
+                "status": "received",
+                "message": "Execution code received and acknowledged"
+            }
+            
+            # Start processing in a separate thread to avoid blocking the response
+            if alpha_service_instance:
+                thread = threading.Thread(target=alpha_service_instance.process_alpha_pipeline)
+                thread.daemon = True
+                thread.start()
+            
+            logger.info("[AlphaService] Acknowledging receipt to master and starting processing")
+            return jsonify(response), 200
+        else:
+            if execution_started:
+                return jsonify({"status": "already_started", "message": "Processing already in progress"}), 200
+            else:
+                return jsonify({"status": "error", "message": "Unknown command"}), 400
+                
+    except Exception as e:
+        logger.error(f"[AlphaService] Error handling execution command: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/get_returns', methods=['GET'])
+def get_returns():
+    """Get returns data for backtesting"""
+    global alpha_service_instance
+    
+    try:
+        if not alpha_service_instance or alpha_service_instance.returns_data is None:
+            return jsonify({"error": "Returns data not available"}), 404
+        
+        returns_df = alpha_service_instance.returns_data
+        
+        # Convert to JSON format
+        dates = returns_df.index.strftime('%Y-%m-%d').tolist()
+        stocks = returns_df.columns.tolist()
+        
+        data_matrix = []
+        for date in returns_df.index:
+            row = []
+            for stock in returns_df.columns:
+                value = returns_df.loc[date, stock]
+                if pd.isna(value):
+                    row.append(None)
+                else:
+                    row.append(float(value))
+            data_matrix.append(row)
+        
+        result = {
+            "dates": dates,
+            "stocks": stocks,
+            "data": data_matrix
+        }
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        logger.error(f"[AlphaService] Error getting returns: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/get_alpha', methods=['GET'])
+def get_alpha():
+    """Get alpha (negative rank returns) data"""
+    global alpha_service_instance
+    
+    try:
+        if not alpha_service_instance or alpha_service_instance.alpha_data is None:
+            return jsonify({"error": "Alpha data not available"}), 404
+        
+        alpha_df = alpha_service_instance.alpha_data
+        
+        # Convert to JSON format
+        dates = alpha_df.index.strftime('%Y-%m-%d').tolist()
+        stocks = alpha_df.columns.tolist()
+        
+        data_matrix = []
+        for date in alpha_df.index:
+            row = []
+            for stock in alpha_df.columns:
+                value = alpha_df.loc[date, stock]
+                if pd.isna(value):
+                    row.append(None)
+                else:
+                    row.append(float(value))
+            data_matrix.append(row)
+        
+        result = {
+            "dates": dates,
+            "stocks": stocks,
+            "data": data_matrix
+        }
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        logger.error(f"[AlphaService] Error getting alpha data: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 class AlphaService:
     """Alpha Service for calculating negative rank returns"""
@@ -31,6 +161,10 @@ class AlphaService:
         self.normalizer_host = os.getenv('NORMALIZER_HOST', 'localhost')
         self.normalizer_port = int(os.getenv('NORMALIZER_PORT', '8080'))
         self.protocol = os.getenv('COMM_TYPE', 'REST').upper()
+        
+        # Store computed data for retrieval
+        self.alpha_data: Optional[pd.DataFrame] = None
+        self.returns_data: Optional[pd.DataFrame] = None
         
         logger.info(f"[AlphaService] Initialized with protocol: {self.protocol}")
         logger.info(f"[AlphaService] Normalizer endpoint: {self.normalizer_host}:{self.normalizer_port}")
@@ -51,6 +185,34 @@ class AlphaService:
             logger.error(f"[AlphaService] Connection error: {e}")
             return False
     
+    def calculate_returns_data(self, raw_data: pd.DataFrame) -> pd.DataFrame:
+        """Calculate actual returns from raw stock data"""
+        logger.info("[AlphaService] Calculating returns data...")
+        
+        try:
+            returns_columns = []
+            
+            if isinstance(raw_data.columns, pd.MultiIndex):
+                tickers = raw_data.columns.get_level_values(0).unique()
+                
+                for ticker in tickers:
+                    close_col = (ticker, 'Close')
+                    if close_col in raw_data.columns:
+                        close_prices = raw_data[close_col]
+                        returns = close_prices.pct_change(fill_method=None)
+                        returns_columns.append(pd.DataFrame({ticker: returns}))
+            
+            if returns_columns:
+                returns_df = pd.concat(returns_columns, axis=1)
+                logger.info(f"[AlphaService] Returns data shape: {returns_df.shape}")
+                return returns_df
+            else:
+                return None
+                
+        except Exception as e:
+            logger.error(f"[AlphaService] Error calculating returns: {e}")
+            return None
+    
     def calculate_alpha_data(self) -> pd.DataFrame:
         """Calculate negative rank returns using utils"""
         logger.info("[AlphaService] Calculating alpha data...")
@@ -63,6 +225,10 @@ class AlphaService:
             if data is None:
                 logger.error("[AlphaService] Failed to get S&P 500 data")
                 return None
+            
+            # Store raw data and calculate returns
+            logger.info("[AlphaService] Calculating returns...")
+            self.returns_data = self.calculate_returns_data(data)
             
             # Calculate negative rank returns
             logger.info("[AlphaService] Calculating negative rank returns...")
@@ -123,11 +289,12 @@ class AlphaService:
         try:
             logger.info("[AlphaService] Sending data to Normalizer Service...")
             
-            # Send data and get response
+            # Send data and get response (normalized weights)
             response = self.client.send_data(matrix_data)
             
-            if response:
-                logger.info("[AlphaService] Received response from Normalizer Service")
+            if response and isinstance(response, dict):
+                logger.info("[AlphaService] Received normalized weights from Normalizer Service")
+                logger.info("[AlphaService] Normalizer will send weights to backtester directly")
                 return response
             else:
                 logger.error("[AlphaService] No response from Normalizer Service")
@@ -146,6 +313,9 @@ class AlphaService:
             alpha_data = self.calculate_alpha_data()
             if alpha_data is None:
                 return None
+            
+            # Store alpha_data for retrieval
+            self.alpha_data = alpha_data
             
             # Step 2: Prepare matrix data
             matrix_data = self.prepare_matrix_data(alpha_data)
@@ -175,30 +345,48 @@ class AlphaService:
                 self.client.disconnect()
     
     def run_service(self):
-        """Run the Alpha Service"""
+        """Run the Alpha Service with HTTP server for master communication"""
+        global alpha_service_instance
+        
         logger.info("=== Alpha Service Started ===")
         logger.info(f"Protocol: {self.protocol}")
         logger.info(f"Normalizer: {self.normalizer_host}:{self.normalizer_port}")
         
+        # Set instance for HTTP handler
+        alpha_service_instance = self
+        
+        # Start Flask server in a separate thread
+        alpha_port = int(os.getenv('ALPHA_PORT', '8081'))
+        logger.info(f"[AlphaService] Starting HTTP server on port {alpha_port} to receive commands from master")
+        
+        # Run Flask server in a separate thread (non-daemon so it stays alive)
+        server_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=alpha_port, debug=False, use_reloader=False))
+        server_thread.daemon = False  # Keep thread alive even when main exits
+        server_thread.start()
+        
+        logger.info("[AlphaService] Waiting for execution command from master...")
+        
+        # Keep the main thread alive to maintain the server indefinitely
         try:
-            # Process the alpha pipeline
-            result = self.process_alpha_pipeline()
+            # Wait for execution to be triggered
+            while not execution_started:
+                import time
+                time.sleep(1)
             
-            if result:
-                logger.info("=== Alpha Service Completed Successfully ===")
-                print("\n=== NORMALIZED WEIGHTS ===")
-                print(json.dumps(result, indent=2))
-            else:
-                logger.error("=== Alpha Service Failed ===")
-                return False
+            logger.info("[AlphaService] Processing started, keeping server alive indefinitely...")
+            
+            # Keep the server running indefinitely to serve requests
+            # This allows the backtester and other services to query data
+            while True:
+                import time
+                time.sleep(60)  # Keep alive
                 
         except KeyboardInterrupt:
             logger.info("=== Alpha Service Interrupted ===")
+            return False
         except Exception as e:
             logger.error(f"=== Alpha Service Error: {e} ===")
             return False
-        
-        return True
 
 
 def main():

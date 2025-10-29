@@ -87,7 +87,12 @@ void write_http_response(int client_fd, int status, const std::string &text) {
     std::string statusText = (status == 200 ? "OK" : "ERROR");
     std::string body = text;
     std::string resp = "HTTP/1.1 " + std::to_string(status) + " " + statusText + "\r\n";
-    resp += "Content-Type: text/plain\r\n";
+    // Use JSON content type if the body looks like JSON
+    if (status == 200 && !body.empty() && body[0] == '{') {
+        resp += "Content-Type: application/json\r\n";
+    } else {
+        resp += "Content-Type: text/plain\r\n";
+    }
     resp += "Content-Length: " + std::to_string(body.size()) + "\r\n";
     resp += "Connection: close\r\n\r\n";
     resp += body;
@@ -128,9 +133,9 @@ public:
                     write_http_response(cfd, 500, "No handler");
                 } else {
                     try {
-                        // Process and intentionally do not return weights; just acknowledge
-                        (void)handler_(body);
-                        write_http_response(cfd, 200, "Processed");
+                        // Process and return the normalized weights JSON
+                        std::string normalized_weights = handler_(body);
+                        write_http_response(cfd, 200, normalized_weights);
                     } catch (const std::exception &ex) {
                         std::cerr << "[RestServer] Handler error: " << ex.what() << std::endl;
                         write_http_response(cfd, 500, "Handler error");
