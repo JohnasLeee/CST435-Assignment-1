@@ -10,12 +10,15 @@ import pandas as pd
 import numpy as np
 import threading
 from typing import Dict, Any, Optional
-from flask import Flask, request, jsonify
+import grpc
+from concurrent import futures
 
-# Add parent directory to path to import utils
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Ensure project root is importable for utils
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import utils
-from communication_interface import create_client, ICommClient
+
+import pipeline_pb2 as pb2  # type: ignore
+import pipeline_pb2_grpc as pb2_grpc  # type: ignore
 
 # Configure logging
 logging.basicConfig(
@@ -24,166 +27,45 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Flask app for receiving execution commands from master
-app = Flask(__name__)
 execution_started = False
-alpha_service_instance = None
-
-
-@app.route('/health', methods=['GET'])
-def health():
-    """Health check endpoint"""
-    return jsonify({"status": "healthy", "service": "alpha", "execution_started": execution_started}), 200
-
-
-@app.route('/execute', methods=['POST'])
-def execute_command():
-    """Receive execution command from master and acknowledge receipt"""
-    global execution_started, alpha_service_instance
-    
-    try:
-        data = request.get_json()
-        command = data.get('command', '')
-        
-        logger.info(f"[AlphaService] Received execution command from master: {command}")
-        
-        if command == "start_processing" and not execution_started:
-            execution_started = True
-            
-            # Acknowledge receipt to master
-            response = {
-                "status": "received",
-                "message": "Execution code received and acknowledged"
-            }
-            
-            # Start processing in a separate thread to avoid blocking the response
-            if alpha_service_instance:
-                thread = threading.Thread(target=alpha_service_instance.process_alpha_pipeline)
-                thread.daemon = True
-                thread.start()
-            
-            logger.info("[AlphaService] Acknowledging receipt to master and starting processing")
-            return jsonify(response), 200
-        else:
-            if execution_started:
-                return jsonify({"status": "already_started", "message": "Processing already in progress"}), 200
-            else:
-                return jsonify({"status": "error", "message": "Unknown command"}), 400
-                
-    except Exception as e:
-        logger.error(f"[AlphaService] Error handling execution command: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-@app.route('/get_returns', methods=['GET'])
-def get_returns():
-    """Get returns data for backtesting"""
-    global alpha_service_instance
-    
-    try:
-        if not alpha_service_instance or alpha_service_instance.returns_data is None:
-            return jsonify({"error": "Returns data not available"}), 404
-        
-        returns_df = alpha_service_instance.returns_data
-        
-        # Convert to JSON format
-        dates = returns_df.index.strftime('%Y-%m-%d').tolist()
-        stocks = returns_df.columns.tolist()
-        
-        data_matrix = []
-        for date in returns_df.index:
-            row = []
-            for stock in returns_df.columns:
-                value = returns_df.loc[date, stock]
-                if pd.isna(value):
-                    row.append(None)
-                else:
-                    row.append(float(value))
-            data_matrix.append(row)
-        
-        result = {
-            "dates": dates,
-            "stocks": stocks,
-            "data": data_matrix
-        }
-        
-        return jsonify(result), 200
-        
-    except Exception as e:
-        logger.error(f"[AlphaService] Error getting returns: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/get_alpha', methods=['GET'])
-def get_alpha():
-    """Get alpha (negative rank returns) data"""
-    global alpha_service_instance
-    
-    try:
-        if not alpha_service_instance or alpha_service_instance.alpha_data is None:
-            return jsonify({"error": "Alpha data not available"}), 404
-        
-        alpha_df = alpha_service_instance.alpha_data
-        
-        # Convert to JSON format
-        dates = alpha_df.index.strftime('%Y-%m-%d').tolist()
-        stocks = alpha_df.columns.tolist()
-        
-        data_matrix = []
-        for date in alpha_df.index:
-            row = []
-            for stock in alpha_df.columns:
-                value = alpha_df.loc[date, stock]
-                if pd.isna(value):
-                    row.append(None)
-                else:
-                    row.append(float(value))
-            data_matrix.append(row)
-        
-        result = {
-            "dates": dates,
-            "stocks": stocks,
-            "data": data_matrix
-        }
-        
-        return jsonify(result), 200
-        
-    except Exception as e:
-        logger.error(f"[AlphaService] Error getting alpha data: {e}")
-        return jsonify({"error": str(e)}), 500
 
 
 class AlphaService:
     """Alpha Service for calculating negative rank returns"""
     
     def __init__(self):
-        self.client: Optional[ICommClient] = None
-        self.normalizer_host = os.getenv('NORMALIZER_HOST', 'localhost')
-        self.normalizer_port = int(os.getenv('NORMALIZER_PORT', '8080'))
-        self.protocol = os.getenv('COMM_TYPE', 'REST').upper()
+        self.normalizer_host = os.getenv('NORMALIZER_HOST', 'normalizer')
+        self.normalizer_port = int(os.getenv('NORMALIZER_PORT', '50051'))
+        self.backtester_host = os.getenv('BACKTESTER_HOST', 'backtester')
+        self.backtester_port = int(os.getenv('BACKTESTER_PORT', '50052'))
         
         # Store computed data for retrieval
         self.alpha_data: Optional[pd.DataFrame] = None
         self.returns_data: Optional[pd.DataFrame] = None
         
-        logger.info(f"[AlphaService] Initialized with protocol: {self.protocol}")
         logger.info(f"[AlphaService] Normalizer endpoint: {self.normalizer_host}:{self.normalizer_port}")
+        logger.info(f"[AlphaService] Backtester endpoint: {self.backtester_host}:{self.backtester_port}")
     
-    def connect_to_normalizer(self) -> bool:
-        """Connect to Normalizer Service"""
+    def _normalize_via_grpc(self, matrix_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         try:
-            self.client = create_client(self.protocol)
-            
-            if self.client.connect(self.normalizer_host, self.normalizer_port):
-                logger.info("[AlphaService] Connected to Normalizer Service")
-                return True
-            else:
-                logger.error("[AlphaService] Failed to connect to Normalizer Service")
-                return False
-                
+            max_msg_mb = int(os.getenv('GRPC_MAX_MESSAGE_MB', '64'))
+            chan = grpc.insecure_channel(
+                f"{self.normalizer_host}:{self.normalizer_port}",
+                options=[
+                    ('grpc.max_send_message_length', max_msg_mb * 1024 * 1024),
+                    ('grpc.max_receive_message_length', max_msg_mb * 1024 * 1024),
+                ],
+            )
+            stub = pb2_grpc.NormalizerServiceStub(chan)
+            rows = [pb2.Row(values=[float(x) if x is not None else 0.0 for x in row]) for row in matrix_data["data"]]
+            dates = list(matrix_data.get("dates", []))
+            stocks = list(matrix_data.get("stocks", []))
+            req = pb2.NormalizeRequest(matrix=pb2.Matrix(rows=rows), dates=dates, stocks=stocks)
+            _ = stub.Normalize(req, timeout=300)
+            return {}
         except Exception as e:
-            logger.error(f"[AlphaService] Connection error: {e}")
-            return False
+            logger.error(f"[AlphaService] gRPC normalize error: {e}")
+            return None
     
     def calculate_returns_data(self, raw_data: pd.DataFrame) -> pd.DataFrame:
         """Calculate actual returns from raw stock data"""
@@ -281,28 +163,8 @@ class AlphaService:
             return None
     
     def send_to_normalizer(self, matrix_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Send matrix data to Normalizer Service"""
-        if not self.client or not self.client.is_connected():
-            logger.error("[AlphaService] Not connected to Normalizer Service")
-            return None
-        
-        try:
-            logger.info("[AlphaService] Sending data to Normalizer Service...")
-            
-            # Send data and get response (normalized weights)
-            response = self.client.send_data(matrix_data)
-            
-            if response and isinstance(response, dict):
-                logger.info("[AlphaService] Received normalized weights from Normalizer Service")
-                logger.info("[AlphaService] Normalizer will send weights to backtester directly")
-                return response
-            else:
-                logger.error("[AlphaService] No response from Normalizer Service")
-                return None
-                
-        except Exception as e:
-            logger.error(f"[AlphaService] Error sending to Normalizer: {e}")
-            return None
+        logger.info("[AlphaService] Sending data to Normalizer Service via gRPC...")
+        return self._normalize_via_grpc(matrix_data)
     
     def process_alpha_pipeline(self) -> Optional[Dict[str, Any]]:
         """Complete alpha processing pipeline"""
@@ -322,15 +184,51 @@ class AlphaService:
             if matrix_data is None:
                 return None
             
-            # Step 3: Connect to Normalizer Service
-            if not self.connect_to_normalizer():
-                return None
-            
-            # Step 4: Send to Normalizer Service
+            # Step 3: Send to Normalizer Service
             result = self.send_to_normalizer(matrix_data)
             
-            if result:
-                logger.info("[AlphaService] Alpha processing pipeline completed successfully")
+            if result is not None:
+                logger.info("[AlphaService] Sending returns to Backtester via gRPC...")
+                try:
+                    # Prepare returns matrix from stored returns_data
+                    if self.returns_data is None:
+                        logger.error("[AlphaService] Returns data not available for Backtester")
+                        return result
+                    
+                    returns_dates = self.returns_data.index.strftime('%Y-%m-%d').tolist()
+                    returns_stocks = self.returns_data.columns.tolist()
+                    returns_matrix_data = []
+                    for date in self.returns_data.index:
+                        row = []
+                        for stock in self.returns_data.columns:
+                            value = self.returns_data.loc[date, stock]
+                            if pd.isna(value):
+                                row.append(0.0)
+                            else:
+                                row.append(float(value))
+                        returns_matrix_data.append(row)
+                    returns_rows = [pb2.Row(values=row) for row in returns_matrix_data]
+                    returns_matrix = pb2.Matrix(rows=returns_rows)
+                    
+                    max_msg_mb = int(os.getenv('GRPC_MAX_MESSAGE_MB', '64'))
+                    chan = grpc.insecure_channel(
+                        f"{self.backtester_host}:{self.backtester_port}",
+                        options=[
+                            ('grpc.max_send_message_length', max_msg_mb * 1024 * 1024),
+                            ('grpc.max_receive_message_length', max_msg_mb * 1024 * 1024),
+                        ],
+                    )
+                    stub = pb2_grpc.BacktesterServiceStub(chan)
+                    # Send returns with dates/stocks for alignment
+                    req = pb2.SubmitReturnsRequest(
+                        returns=returns_matrix,
+                        dates=returns_dates,
+                        stocks=returns_stocks
+                    )
+                    _ = stub.SubmitReturns(req, timeout=60)
+                    logger.info("[AlphaService] Backtester acknowledged returns")
+                except Exception as e:
+                    logger.error(f"[AlphaService] Error calling Backtester: {e}")
                 return result
             else:
                 logger.error("[AlphaService] Alpha processing pipeline failed")
@@ -340,65 +238,34 @@ class AlphaService:
             logger.error(f"[AlphaService] Pipeline error: {e}")
             return None
         finally:
-            # Cleanup connection
-            if self.client:
-                self.client.disconnect()
+            pass
     
-    def run_service(self):
-        """Run the Alpha Service with HTTP server for master communication"""
-        global alpha_service_instance
-        
-        logger.info("=== Alpha Service Started ===")
-        logger.info(f"Protocol: {self.protocol}")
-        logger.info(f"Normalizer: {self.normalizer_host}:{self.normalizer_port}")
-        
-        # Set instance for HTTP handler
-        alpha_service_instance = self
-        
-        # Start Flask server in a separate thread
-        alpha_port = int(os.getenv('ALPHA_PORT', '8081'))
-        logger.info(f"[AlphaService] Starting HTTP server on port {alpha_port} to receive commands from master")
-        
-        # Run Flask server in a separate thread (non-daemon so it stays alive)
-        server_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=alpha_port, debug=False, use_reloader=False))
-        server_thread.daemon = False  # Keep thread alive even when main exits
-        server_thread.start()
-        
-        logger.info("[AlphaService] Waiting for execution command from master...")
-        
-        # Keep the main thread alive to maintain the server indefinitely
-        try:
-            # Wait for execution to be triggered
-            while not execution_started:
-                import time
-                time.sleep(1)
-            
-            logger.info("[AlphaService] Processing started, keeping server alive indefinitely...")
-            
-            # Keep the server running indefinitely to serve requests
-            # This allows the backtester and other services to query data
-            while True:
-                import time
-                time.sleep(60)  # Keep alive
-                
-        except KeyboardInterrupt:
-            logger.info("=== Alpha Service Interrupted ===")
-            return False
-        except Exception as e:
-            logger.error(f"=== Alpha Service Error: {e} ===")
-            return False
+class AlphaGrpcService(pb2_grpc.AlphaServiceServicer):
+    def __init__(self, alpha: 'AlphaService'):
+        self.alpha = alpha
+
+    def StartProcessing(self, request: pb2.StartProcessingRequest, context):
+        global execution_started
+        if execution_started:
+            return pb2.StartProcessingResponse(ack=pb2.Ack(ok=True, message="Already started"))
+        execution_started = True
+        t = threading.Thread(target=self.alpha.process_alpha_pipeline, daemon=True)
+        t.start()
+        return pb2.StartProcessingResponse(ack=pb2.Ack(ok=True, message="Started"))
+
+def run_grpc_server(alpha: 'AlphaService') -> None:
+    port = int(os.getenv('ALPHA_PORT', '50050'))
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=8))
+    pb2_grpc.add_AlphaServiceServicer_to_server(AlphaGrpcService(alpha), server)
+    server.add_insecure_port(f'[::]:{port}')
+    logger.info(f"Alpha gRPC server listening on {port}")
+    server.start()
+    server.wait_for_termination()
 
 
 def main():
-    """Main entry point"""
-    # Create and run Alpha Service
     service = AlphaService()
-    success = service.run_service()
-    
-    if success:
-        sys.exit(0)
-    else:
-        sys.exit(1)
+    run_grpc_server(service)
 
 
 if __name__ == "__main__":

@@ -1,11 +1,12 @@
 import os
 import subprocess
 import sys
-import requests
+import grpc
 import time
 import logging
 import json
-from flask import Flask, request, jsonify
+import pipeline_pb2 as pb2  # type: ignore
+import pipeline_pb2_grpc as pb2_grpc  # type: ignore
 
 logging.basicConfig(
     level=logging.INFO,
@@ -13,98 +14,62 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
 results_received = False
 backtest_results = None
 
 
-@app.route('/results', methods=['POST'])
-def receive_results():
-    """Receive backtest results from Backtester"""
+def poll_backtester_until_done(timeout_sec: int = 300, interval_sec: int = 5) -> bool:
     global results_received, backtest_results
-    
-    try:
-        results = request.get_json()
-        results_received = True
-        backtest_results = results
-        
-        logger.info("[Master] Received backtest results from Backtester")
-        logger.info(f"[Master] Sharpe Ratio: {results.get('sharpe')}")
-        logger.info(f"[Master] Fitness Score: {results.get('fitness')}")
-        logger.info(f"[Master] Max Drawdown: {results.get('max_drawdown')}")
-        logger.info(f"[Master] Turnover: {results.get('turnover')}")
-        
-        return jsonify({"status": "received"}), 200
-        
-    except Exception as e:
-        logger.error(f"[Master] Error receiving results: {e}")
-        return jsonify({"error": str(e)}), 500
+    backtester_host = os.getenv('BACKTESTER_HOST', 'backtester')
+    backtester_port = int(os.getenv('BACKTESTER_PORT', '50052'))
+    stub = pb2_grpc.BacktesterServiceStub(grpc.insecure_channel(f"{backtester_host}:{backtester_port}"))
+    elapsed = 0
+    while elapsed < timeout_sec:
+        try:
+            resp = stub.GetStatus(pb2.BacktestStatusRequest(), timeout=10)
+            if resp.done:
+                results_received = True
+                backtest_results = json.loads(resp.summary_json) if resp.summary_json else None
+                return True
+        except Exception as e:
+            logger.info(f"[Master] Backtester not ready: {e}")
+        time.sleep(interval_sec)
+        elapsed += interval_sec
+        logger.info(f"[Master] Waiting for results... ({elapsed}s)")
+    return False
 
 
 def send_execution_command_to_alpha():
-    """Send execution command to Alpha Service and wait for acknowledgment"""
     alpha_host = os.getenv('ALPHA_HOST', 'alpha')
-    alpha_port = int(os.getenv('ALPHA_PORT', '8081'))
+    alpha_port = int(os.getenv('ALPHA_PORT', '50050'))
     max_retries = 10
     retry_delay = 2
-    
-    logger.info(f"[Master] Sending execution command to Alpha Service at {alpha_host}:{alpha_port}")
-    
+    logger.info(f"[Master] Sending StartProcessing to Alpha at {alpha_host}:{alpha_port}")
     for attempt in range(max_retries):
         try:
-            url = f"http://{alpha_host}:{alpha_port}/execute"
-            response = requests.post(url, json={"command": "start_processing"}, timeout=5)
-            
-            if response.status_code == 200:
-                result = response.json()
-                logger.info(f"[Master] Alpha Service acknowledged receipt of execution code: {result}")
-                print(f"[Master] Alpha Service confirmed: {result.get('message', 'Execution started')}")
+            stub = pb2_grpc.AlphaServiceStub(grpc.insecure_channel(f"{alpha_host}:{alpha_port}"))
+            resp = stub.StartProcessing(pb2.StartProcessingRequest(), timeout=5)
+            if resp.ack.ok:
+                logger.info(f"[Master] Alpha acknowledged: {resp.ack.message}")
+                print(f"[Master] Alpha: {resp.ack.message}")
                 return True
-            else:
-                logger.warning(f"[Master] Alpha Service returned status {response.status_code}")
-                
-        except requests.exceptions.ConnectionError:
-            logger.info(f"[Master] Attempt {attempt + 1}/{max_retries}: Alpha Service not ready yet, retrying in {retry_delay}s...")
-            time.sleep(retry_delay)
         except Exception as e:
-            logger.error(f"[Master] Error communicating with Alpha Service: {e}")
+            logger.info(f"[Master] Attempt {attempt + 1}/{max_retries}: Alpha not ready: {e}")
             time.sleep(retry_delay)
-    
-    logger.error("[Master] Failed to get acknowledgment from Alpha Service after all retries")
+    logger.error("[Master] Failed to reach Alpha after retries")
     return False
 
 
 def main():
     # Master node sends execution command to alpha service and receives results
-    import threading
-    
     logger.info("=== Master Service Started ===")
-    
-    # Start Flask server in background to receive results
-    master_port = int(os.getenv('MASTER_PORT', '8083'))
-    server_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=master_port, debug=False, use_reloader=False))
-    server_thread.daemon = True
-    server_thread.start()
-    logger.info(f"[Master] Listening for results on port {master_port}")
-    
     try:
         # Send execution command to alpha and wait for acknowledgment
         success = send_execution_command_to_alpha()
         
         if success:
             logger.info("[Master] Waiting for backtest results...")
-            
-            # Wait for results
-            max_wait_time = 300  # 5 minutes
-            wait_interval = 5
-            elapsed = 0
-            
-            while not results_received and elapsed < max_wait_time:
-                time.sleep(wait_interval)
-                elapsed += wait_interval
-                logger.info(f"[Master] Waiting for results... ({elapsed}s)")
-            
-            if results_received and backtest_results:
+            if poll_backtester_until_done(timeout_sec=300, interval_sec=5) and backtest_results:
                 logger.info("=== Master Service Completed Successfully ===")
                 logger.info("=== BACKTEST RESULTS ===")
                 logger.info(json.dumps(backtest_results, indent=2))

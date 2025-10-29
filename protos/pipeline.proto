@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package pipeline;
+
+// Common messages
+message Empty {}
+message Ack {
+  bool ok = 1;
+  string message = 2;
+}
+
+message Row {
+  repeated double values = 1; // float64
+}
+
+message Matrix {
+  repeated Row rows = 1;
+}
+
+// Alpha service
+message StartProcessingRequest {
+  // Optional: parameters for alpha generation can be added later
+}
+message StartProcessingResponse {
+  Ack ack = 1;
+}
+
+service AlphaService {
+  rpc StartProcessing(StartProcessingRequest) returns (StartProcessingResponse);
+}
+
+// Normalizer service
+message NormalizeRequest {
+  Matrix matrix = 1;
+  repeated string dates = 2;
+  repeated string stocks = 3;
+}
+message NormalizeResponse {
+  Ack ack = 1;
+}
+
+service NormalizerService {
+  rpc Normalize(NormalizeRequest) returns (NormalizeResponse);
+}
+
+// Backtester service
+message SubmitWeightsRequest {
+  Matrix weights = 1;
+  repeated string dates = 2;  // Dates for alignment
+  repeated string stocks = 3;  // Stock symbols for alignment
+}
+message SubmitWeightsResponse {
+  Ack ack = 1;
+}
+
+message SubmitReturnsRequest {
+  Matrix returns = 1;
+  repeated string dates = 2;
+  repeated string stocks = 3;
+}
+message SubmitReturnsResponse {
+  Ack ack = 1;
+}
+
+message BacktestStatusRequest {}
+message BacktestStatusResponse {
+  bool done = 1;
+  string summary_json = 2; // JSON blob if done
+}
+
+service BacktesterService {
+  rpc SubmitWeights(SubmitWeightsRequest) returns (SubmitWeightsResponse);
+  rpc SubmitReturns(SubmitReturnsRequest) returns (SubmitReturnsResponse);
+  rpc GetStatus(BacktestStatusRequest) returns (BacktestStatusResponse);
+}
+
+

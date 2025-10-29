@@ -5,16 +5,15 @@ services:
       dockerfile: alpha.Dockerfile
     container_name: backtester
     working_dir: /app
-    volumes:
-      - ./:/app
     environment:
       - ALPHA_HOST=alpha
-      - ALPHA_PORT=8081
-      - BACKTESTER_PORT=8082
-      - MASTER_HOST=master
-      - MASTER_PORT=8083
+      - ALPHA_PORT=50050
+      - BACKTESTER_PORT=50052
+      - PNL_OUTPUT_DIR=/outputs
     ports:
-      - "8082:8082"
+      - "50052:50052"
+    volumes:
+      - ./outputs:/outputs
     command: ["python", "backtester_service.py"]
 
   normalizer:
@@ -24,12 +23,9 @@ services:
     image: normalizer_service
     container_name: normalizer
     environment:
-      - LOG_DEBUG=1
-      - NORMALIZER_PORT=8080
-      - BACKTESTER_HOST=backtester
-      - BACKTESTER_PORT=8082
+      - NORMALIZER_PORT=50051
     ports:
-      - "8080:8080"
+      - "50051:50051"
 
   alpha:
     build:
@@ -37,14 +33,14 @@ services:
       dockerfile: alpha.Dockerfile
     container_name: alpha
     working_dir: /app
-    volumes:
-      - ./:/app
     environment:
       - NORMALIZER_HOST=normalizer
-      - NORMALIZER_PORT=8080
-      - ALPHA_PORT=8081
+      - NORMALIZER_PORT=50051
+      - BACKTESTER_HOST=backtester
+      - BACKTESTER_PORT=50052
+      - ALPHA_PORT=50050
     ports:
-      - "8081:8081"
+      - "50050:50050"
     command: ["python", "alpha_service.py"]
     depends_on:
       - normalizer
@@ -56,14 +52,11 @@ services:
       dockerfile: master.Dockerfile
     container_name: master
     working_dir: /app
-    volumes:
-      - ./:/app
     environment:
       - ALPHA_HOST=alpha
-      - ALPHA_PORT=8081
-      - MASTER_PORT=8083
-    ports:
-      - "8083:8083"
+      - ALPHA_PORT=50050
+      - BACKTESTER_HOST=backtester
+      - BACKTESTER_PORT=50052
     command: ["python", "master.py"]
 
 networks:

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(normalizer_service CXX)
+project(normalizer_cli CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,14 +31,13 @@ endif()
 include_directories(${EIGEN3_INCLUDE_DIR})
 include_directories(${NLOHMANN_JSON_INCLUDE_DIR})
 
-add_executable(normalizer_service
+add_executable(normalizer_cli
     main.cpp
     src/Normalizer.cpp
-    src/RestServer.cpp
 )
 
-target_include_directories(normalizer_service PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(normalizer_cli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-install(TARGETS normalizer_service RUNTIME DESTINATION bin)
+install(TARGETS normalizer_cli RUNTIME DESTINATION bin)
 
 

@@ -11,6 +11,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY . /app
 
+# Generate gRPC Python stubs
+RUN python -m grpc_tools.protoc -I /app/protos \
+    --python_out=/app \
+    --grpc_python_out=/app \
+    /app/protos/pipeline.proto
+
 CMD ["python", "alpha_service.py"]
 
 
