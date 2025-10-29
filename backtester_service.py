@@ -81,7 +81,7 @@ class BacktesterCore:
 
         # IMPORTANT: Use previous day's weights for today's returns (weights_{t-1} * returns_{t})
         # Shift weights forward by one day so row t contains weights from t-1
-        weights_aligned = weights_aligned.shift(1)
+        weights_aligned = weights_aligned.shift(-1)
 
         # Drop the first day (no previous weights available) and keep returns as-is for those dates
         if len(weights_aligned) > 0:
