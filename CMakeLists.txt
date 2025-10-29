@@ -34,13 +34,10 @@ include_directories(${NLOHMANN_JSON_INCLUDE_DIR})
 add_executable(normalizer_service
     main.cpp
     src/Normalizer.cpp
-    src/GrpcServer.cpp
     src/RestServer.cpp
 )
 
 target_include_directories(normalizer_service PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-
-# No external link libraries needed for stubs
 
 install(TARGETS normalizer_service RUNTIME DESTINATION bin)
 

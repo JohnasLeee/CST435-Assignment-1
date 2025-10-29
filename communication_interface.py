@@ -40,18 +40,14 @@ class RestClient(ICommClient):
         data = json.dumps(payload)
         resp = requests.post(url, headers=headers, data=data, timeout=120)
         resp.raise_for_status()
-        # For current flow, normalizer doesn't return weights; return empty dict
-        return {}
+        # Normalizer doesn't return weights; return a processed to indicate success
+        return {"status": "processed"}
 
     def disconnect(self) -> None:
         self._connected = False
 
 
 def create_client(protocol: str) -> ICommClient:
-    proto = protocol.upper()
-    if proto == "REST":
-        return RestClient()
-    # Stub for gRPC could be added here later
     return RestClient()
 
 

@@ -1,10 +1,7 @@
 #include "ICommServer.h"
 
 #include <iostream>
-#include <thread>
-#include <vector>
 #include <string>
-#include <cstring>
 #include <cstdlib>
 
 #include <sys/types.h>
@@ -37,11 +34,10 @@ int create_listen_socket(int port) {
 }
 
 bool read_http_request(int client_fd, std::string &method, std::string &path, std::string &body) {
-    std::string buffer;
-    buffer.resize(8192);
-    ssize_t n = recv(client_fd, buffer.data(), buffer.size(), 0);
+    char buf[8192];
+    ssize_t n = recv(client_fd, buf, sizeof(buf), 0);
     if (n <= 0) return false;
-    std::string req(buffer.data(), static_cast<size_t>(n));
+    std::string req(buf, static_cast<size_t>(n));
 
     // Find header/body split
     auto pos = req.find("\r\n\r\n");

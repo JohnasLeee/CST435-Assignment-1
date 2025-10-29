@@ -8,7 +8,6 @@ services:
     image: normalizer_service
     container_name: normalizer
     environment:
-      - COMM_TYPE=REST
       - LOG_DEBUG=1
       - NORMALIZER_PORT=8080
     ports:
@@ -23,7 +22,6 @@ services:
     volumes:
       - ./:/app
     environment:
-      - COMM_TYPE=REST
       - NORMALIZER_HOST=normalizer
       - NORMALIZER_PORT=8080
     command: ["python", "alpha_service.py"]
