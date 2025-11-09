@@ -9,6 +9,7 @@ import logging
 import pandas as pd
 import numpy as np
 import threading
+import time  # Added for timing measurements
 from typing import Dict, Any, Optional
 from flask import Flask, request, jsonify
 
@@ -289,10 +290,19 @@ class AlphaService:
         try:
             logger.info("[AlphaService] Sending data to Normalizer Service...")
             
-            # Send data and get response (normalized weights)
+            # Measure total time including setup
+            overall_start_time = time.time()
+
+            # Measure time for pure gRPC call
+            start_time = time.time()
             response = self.client.send_data(matrix_data)
-            
+            call_elapsed = time.time() - start_time
+
+            overall_elapsed = time.time() - overall_start_time
+
             if response and isinstance(response, dict):
+                logger.info(f"[TIMING] Alpha -> Normalizer (pure gRPC call, no retries): {call_elapsed:.3f} seconds")
+                logger.info(f"[TIMING] Alpha -> Normalizer (with setup, no retries): {overall_elapsed:.3f} seconds")
                 logger.info("[AlphaService] Received normalized weights from Normalizer Service")
                 logger.info("[AlphaService] Normalizer will send weights to backtester directly")
                 return response
@@ -302,6 +312,38 @@ class AlphaService:
                 
         except Exception as e:
             logger.error(f"[AlphaService] Error sending to Normalizer: {e}")
+            return None
+    
+    def send_to_backtester(self, matrix_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Send matrix data to Backtester Service"""
+        if not self.client or not self.client.is_connected():
+            logger.error("[AlphaService] Not connected to Backtester Service")
+            return None
+
+        try:
+            logger.info("[AlphaService] Sending data to Backtester Service...")
+
+            # Measure total time including setup
+            overall_start_time_bt = time.time()
+
+            # Measure time for pure gRPC call
+            start_time_bt = time.time()
+            response_bt = self.client.send_data(matrix_data)
+            call_elapsed_bt = time.time() - start_time_bt
+
+            overall_elapsed_bt = time.time() - overall_start_time_bt
+
+            if response_bt and isinstance(response_bt, dict):
+                logger.info(f"[TIMING] Alpha -> Backtester (pure gRPC call, no retries): {call_elapsed_bt:.3f} seconds")
+                logger.info(f"[TIMING] Alpha -> Backtester (with setup, no retries): {overall_elapsed_bt:.3f} seconds")
+                logger.info("[AlphaService] Received response from Backtester Service")
+                return response_bt
+            else:
+                logger.error("[AlphaService] No response from Backtester Service")
+                return None
+
+        except Exception as e:
+            logger.error(f"[AlphaService] Error sending to Backtester: {e}")
             return None
     
     def process_alpha_pipeline(self) -> Optional[Dict[str, Any]]:
@@ -403,3 +445,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+logger.info("[TIMING] Alpha -> Normalizer (pure gRPC call, no retries): {call_elapsed:.3f} seconds")
+logger.info("[TIMING] Alpha -> Normalizer (with setup, no retries): {overall_elapsed:.3f} seconds")
+logger.info("[TIMING] Alpha -> Backtester (pure gRPC call, no retries): {call_elapsed:.3f} seconds")
+logger.info("[TIMING] Alpha -> Backtester (with setup, no retries): {overall_elapsed:.3f} seconds")

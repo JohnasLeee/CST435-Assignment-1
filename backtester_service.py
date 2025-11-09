@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import requests
 from typing import Dict, Any, Optional
 from flask import Flask, request, jsonify
+import time  # Add time module for timing calculations
 
 # Configure logging
 logging.basicConfig(
@@ -38,8 +39,17 @@ class BacktesterCore:
             try:
                 url = f"http://{self.alpha_host}:{self.alpha_port}/get_returns"
                 logger.info(f"[Backtester] Fetching returns from Alpha Service (attempt {attempt+1}/{max_retries})...")
+                
+                start_time = time.perf_counter()
                 response = requests.get(url, timeout=120)
                 response.raise_for_status()
+                call_elapsed = time.perf_counter() - start_time
+                
+                logger.info(f"[TIMING] Backtester -> Alpha (pure HTTP call, no retries): {call_elapsed:.3f} seconds")
+                
+                # Measure overall elapsed time including setup
+                overall_elapsed = time.perf_counter() - start_time
+                logger.info(f"[TIMING] Backtester -> Alpha (with setup, no retries): {overall_elapsed:.3f} seconds")
                 
                 data = response.json()
                 logger.info(f"[Backtester] Retrieved returns data with {len(data.get('dates', []))} dates and {len(data.get('stocks', []))} stocks")
@@ -57,7 +67,6 @@ class BacktesterCore:
             except Exception as e:
                 logger.warning(f"[Backtester] Error fetching returns (attempt {attempt+1}): {e}")
                 if attempt < max_retries - 1:
-                    import time
                     time.sleep(2)
                 else:
                     logger.error(f"[Backtester] Failed to fetch returns after {max_retries} attempts")
@@ -81,7 +90,7 @@ class BacktesterCore:
 
         # IMPORTANT: Use previous day's weights for today's returns (weights_{t-1} * returns_{t})
         # Shift weights forward by one day so row t contains weights from t-1
-        weights_aligned = weights_aligned.shift(-1)
+        weights_aligned = weights_aligned.shift(1)
 
         # Drop the first day (no previous weights available) and keep returns as-is for those dates
         if len(weights_aligned) > 0:
@@ -329,9 +338,16 @@ class BacktesterCore:
             url = f"http://{master_host}:{master_port}/results"
             logger.info(f"[Backtester] Sending results to Master at {master_host}:{master_port}")
             
-            import requests
+            start_time = time.perf_counter()
             response = requests.post(url, json=results, timeout=30)
             response.raise_for_status()
+            call_elapsed = time.perf_counter() - start_time
+            
+            logger.info(f"[TIMING] Backtester -> Master (pure HTTP call, no retries): {call_elapsed:.3f} seconds")
+            
+            # Measure overall elapsed time including setup
+            overall_elapsed = time.perf_counter() - start_time
+            logger.info(f"[TIMING] Backtester -> Master (with setup, no retries): {overall_elapsed:.3f} seconds")
             
             logger.info("[Backtester] Results successfully sent to Master")
             

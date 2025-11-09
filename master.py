@@ -50,6 +50,8 @@ def send_execution_command_to_alpha():
     
     logger.info(f"[Master] Sending execution command to Alpha Service at {alpha_host}:{alpha_port}")
     
+    start_time = time.time()
+    
     for attempt in range(max_retries):
         try:
             url = f"http://{alpha_host}:{alpha_port}/execute"
@@ -59,6 +61,13 @@ def send_execution_command_to_alpha():
                 result = response.json()
                 logger.info(f"[Master] Alpha Service acknowledged receipt of execution code: {result}")
                 print(f"[Master] Alpha Service confirmed: {result.get('message', 'Execution started')}")
+                
+                call_elapsed = time.time() - start_time
+                overall_elapsed = time.time() - start_time
+                
+                logger.info(f"[TIMING] Master -> Alpha (pure gRPC call, no retries): {call_elapsed:.3f} seconds")
+                logger.info(f"[TIMING] Master -> Alpha (with retries/setup): {overall_elapsed:.3f} seconds")
+                
                 return True
             else:
                 logger.warning(f"[Master] Alpha Service returned status {response.status_code}")
