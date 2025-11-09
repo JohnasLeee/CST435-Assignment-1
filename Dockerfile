@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -7,27 +7,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     libeigen3-dev \
     nlohmann-json3-dev \
- && rm -rf /var/lib/apt/lists/*
+    libgrpc++-dev \
+    libprotobuf-dev \
+    protobuf-compiler-grpc \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY CMakeLists.txt /app/
+COPY main.cpp /app/
+COPY src/ /app/src/
+COPY protos/ /app/protos/
 
-COPY . /app
-
-# Generate gRPC Python stubs
-RUN python -m grpc_tools.protoc -I /app/protos \
-    --python_out=/app \
-    --grpc_python_out=/app \
-    /app/protos/pipeline.proto
-
-# Build C++ normalizer CLI
+# Build C++ normalizer gRPC server
 RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
- && cmake --build build -j
+    && cmake --build build -j \
+    && cmake --install build
 
-ENV NORMALIZER_BIN=/app/build/normalizer_cli
+ENV NORMALIZER_PORT=50051
+ENV BACKTESTER_HOST=backtester
+ENV BACKTESTER_PORT=50052
+ENV GRPC_MAX_MESSAGE_MB=64
 
-CMD ["python", "normalizer_service.py"]
+CMD ["/app/build/normalizer_server"]
 
- 

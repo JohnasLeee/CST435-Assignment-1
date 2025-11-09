@@ -24,10 +24,19 @@ def poll_backtester_until_done(timeout_sec: int = 300, interval_sec: int = 5) ->
     backtester_port = int(os.getenv('BACKTESTER_PORT', '50052'))
     stub = pb2_grpc.BacktesterServiceStub(grpc.insecure_channel(f"{backtester_host}:{backtester_port}"))
     elapsed = 0
+    poll_start = time.perf_counter()
+    
     while elapsed < timeout_sec:
         try:
+            # Time the pure gRPC call to get status
+            call_start = time.perf_counter()
             resp = stub.GetStatus(pb2.BacktestStatusRequest(), timeout=10)
+            call_elapsed = time.perf_counter() - call_start
+            
             if resp.done:
+                total_wait = time.perf_counter() - poll_start
+                logger.info(f"[TIMING] Backtester -> Master (pure gRPC call, no retries): {call_elapsed:.3f} seconds")
+                logger.info(f"[TIMING] Backtester -> Master (with polling wait): {total_wait:.3f} seconds")
                 results_received = True
                 backtest_results = json.loads(resp.summary_json) if resp.summary_json else None
                 return True
@@ -44,12 +53,21 @@ def send_execution_command_to_alpha():
     alpha_port = int(os.getenv('ALPHA_PORT', '50050'))
     max_retries = 10
     retry_delay = 2
+    overall_start = time.perf_counter()
+    
     logger.info(f"[Master] Sending StartProcessing to Alpha at {alpha_host}:{alpha_port}")
     for attempt in range(max_retries):
         try:
+            # Time the pure gRPC call
+            call_start = time.perf_counter()
             stub = pb2_grpc.AlphaServiceStub(grpc.insecure_channel(f"{alpha_host}:{alpha_port}"))
             resp = stub.StartProcessing(pb2.StartProcessingRequest(), timeout=5)
+            call_elapsed = time.perf_counter() - call_start
+            
             if resp.ack.ok:
+                overall_elapsed = time.perf_counter() - overall_start
+                logger.info(f"[TIMING] Master -> Alpha (pure gRPC call, no retries): {call_elapsed:.3f} seconds")
+                logger.info(f"[TIMING] Master -> Alpha (with retries/setup): {overall_elapsed:.3f} seconds")
                 logger.info(f"[Master] Alpha acknowledged: {resp.ack.message}")
                 print(f"[Master] Alpha: {resp.ack.message}")
                 return True

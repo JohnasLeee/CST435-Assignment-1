@@ -6,6 +6,7 @@ import os
 import sys
 import json
 import logging
+import time
 import pandas as pd
 import numpy as np
 import threading
@@ -48,6 +49,9 @@ class AlphaService:
     
     def _normalize_via_grpc(self, matrix_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         try:
+            # Time the overall operation
+            overall_start = time.perf_counter()
+            
             max_msg_mb = int(os.getenv('GRPC_MAX_MESSAGE_MB', '64'))
             chan = grpc.insecure_channel(
                 f"{self.normalizer_host}:{self.normalizer_port}",
@@ -61,7 +65,16 @@ class AlphaService:
             dates = list(matrix_data.get("dates", []))
             stocks = list(matrix_data.get("stocks", []))
             req = pb2.NormalizeRequest(matrix=pb2.Matrix(rows=rows), dates=dates, stocks=stocks)
+            
+            # Time the pure gRPC call
+            call_start = time.perf_counter()
             _ = stub.Normalize(req, timeout=300)
+            call_elapsed = time.perf_counter() - call_start
+            
+            overall_elapsed = time.perf_counter() - overall_start
+            logger.info(f"[TIMING] Alpha -> Normalizer (pure gRPC call, no retries): {call_elapsed:.3f} seconds")
+            logger.info(f"[TIMING] Alpha -> Normalizer (with setup, no retries): {overall_elapsed:.3f} seconds")
+            
             return {}
         except Exception as e:
             logger.error(f"[AlphaService] gRPC normalize error: {e}")
@@ -210,6 +223,9 @@ class AlphaService:
                     returns_rows = [pb2.Row(values=row) for row in returns_matrix_data]
                     returns_matrix = pb2.Matrix(rows=returns_rows)
                     
+                    # Time the overall operation
+                    overall_start = time.perf_counter()
+                    
                     max_msg_mb = int(os.getenv('GRPC_MAX_MESSAGE_MB', '64'))
                     chan = grpc.insecure_channel(
                         f"{self.backtester_host}:{self.backtester_port}",
@@ -225,7 +241,15 @@ class AlphaService:
                         dates=returns_dates,
                         stocks=returns_stocks
                     )
+                    
+                    # Time the pure gRPC call
+                    call_start = time.perf_counter()
                     _ = stub.SubmitReturns(req, timeout=60)
+                    call_elapsed = time.perf_counter() - call_start
+                    
+                    overall_elapsed = time.perf_counter() - overall_start
+                    logger.info(f"[TIMING] Alpha -> Backtester (pure gRPC call, no retries): {call_elapsed:.3f} seconds")
+                    logger.info(f"[TIMING] Alpha -> Backtester (with setup, no retries): {overall_elapsed:.3f} seconds")
                     logger.info("[AlphaService] Backtester acknowledged returns")
                 except Exception as e:
                     logger.error(f"[AlphaService] Error calling Backtester: {e}")
