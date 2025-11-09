@@ -293,7 +293,7 @@ class AlphaService:
             # Measure total time including setup
             overall_start_time = time.time()
 
-            # Measure time for pure gRPC call
+            # Measure time for pure REST call
             start_time = time.time()
             response = self.client.send_data(matrix_data)
             call_elapsed = time.time() - start_time
@@ -301,8 +301,8 @@ class AlphaService:
             overall_elapsed = time.time() - overall_start_time
 
             if response and isinstance(response, dict):
-                logger.info(f"[TIMING] Alpha -> Normalizer (pure gRPC call, no retries): {call_elapsed:.3f} seconds")
-                logger.info(f"[TIMING] Alpha -> Normalizer (with setup, no retries): {overall_elapsed:.3f} seconds")
+                logger.info(f"[TIMING] Alpha -> Normalizer (pure REST call, no retries): {call_elapsed:.3f} seconds")
+                logger.info(f"[TIMING] Alpha -> Normalizer (with setup, REST): {overall_elapsed:.3f} seconds")
                 logger.info("[AlphaService] Received normalized weights from Normalizer Service")
                 logger.info("[AlphaService] Normalizer will send weights to backtester directly")
                 return response
@@ -326,7 +326,7 @@ class AlphaService:
             # Measure total time including setup
             overall_start_time_bt = time.time()
 
-            # Measure time for pure gRPC call
+            # Measure time for pure REST call
             start_time_bt = time.time()
             response_bt = self.client.send_data(matrix_data)
             call_elapsed_bt = time.time() - start_time_bt
@@ -334,8 +334,8 @@ class AlphaService:
             overall_elapsed_bt = time.time() - overall_start_time_bt
 
             if response_bt and isinstance(response_bt, dict):
-                logger.info(f"[TIMING] Alpha -> Backtester (pure gRPC call, no retries): {call_elapsed_bt:.3f} seconds")
-                logger.info(f"[TIMING] Alpha -> Backtester (with setup, no retries): {overall_elapsed_bt:.3f} seconds")
+                logger.info(f"[TIMING] Alpha -> Backtester (pure REST call, no retries): {call_elapsed_bt:.3f} seconds")
+                logger.info(f"[TIMING] Alpha -> Backtester (with setup, REST): {overall_elapsed_bt:.3f} seconds")
                 logger.info("[AlphaService] Received response from Backtester Service")
                 return response_bt
             else:
@@ -446,7 +446,7 @@ def main():
 if __name__ == "__main__":
     main()
 
-logger.info("[TIMING] Alpha -> Normalizer (pure gRPC call, no retries): {call_elapsed:.3f} seconds")
-logger.info("[TIMING] Alpha -> Normalizer (with setup, no retries): {overall_elapsed:.3f} seconds")
-logger.info("[TIMING] Alpha -> Backtester (pure gRPC call, no retries): {call_elapsed:.3f} seconds")
-logger.info("[TIMING] Alpha -> Backtester (with setup, no retries): {overall_elapsed:.3f} seconds")
+logger.info("[TIMING] Alpha -> Normalizer (pure REST call, no retries): {call_elapsed:.3f} seconds")
+logger.info("[TIMING] Alpha -> Normalizer (with setup, REST): {overall_elapsed:.3f} seconds")
+logger.info("[TIMING] Alpha -> Backtester (pure REST call, no retries): {call_elapsed:.3f} seconds")
+logger.info("[TIMING] Alpha -> Backtester (with setup, REST): {overall_elapsed:.3f} seconds")

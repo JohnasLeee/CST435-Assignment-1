@@ -3,10 +3,11 @@
 #include <string>
 #include <functional>
 
-// Simple communication interface abstraction to allow plug-in of GRPC/REST implementations
-class ICommServer {
+// Simple communication interface abstraction to allow plug-in of REST implementations only
+class ICommServer
+{
 public:
-    using RequestHandler = std::function<std::string(const std::string&)>; // input JSON -> output JSON
+    using RequestHandler = std::function<std::string(const std::string &)>; // input JSON -> output JSON
 
     virtual ~ICommServer() = default;
 
@@ -22,5 +23,3 @@ public:
     // For simple single-shot demo: send response (could be a no-op in stubs)
     virtual void sendResponse(const std::string &responseJson) = 0;
 };
-
-

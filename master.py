@@ -65,8 +65,8 @@ def send_execution_command_to_alpha():
                 call_elapsed = time.time() - start_time
                 overall_elapsed = time.time() - start_time
                 
-                logger.info(f"[TIMING] Master -> Alpha (pure gRPC call, no retries): {call_elapsed:.3f} seconds")
-                logger.info(f"[TIMING] Master -> Alpha (with retries/setup): {overall_elapsed:.3f} seconds")
+                logger.info(f"[TIMING] Master -> Alpha (pure REST call, no retries): {call_elapsed:.3f} seconds")
+                logger.info(f"[TIMING] Master -> Alpha (with retries/setup, REST): {overall_elapsed:.3f} seconds")
                 
                 return True
             else:
