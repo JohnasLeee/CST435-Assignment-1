@@ -17,20 +17,34 @@ logger = logging.getLogger(__name__)
 results_received = False
 backtest_results = None
 
+# Create persistent gRPC channels and stubs at module level
+max_msg_mb = int(os.getenv('GRPC_MAX_MESSAGE_MB', '64'))
+grpc_channel_options = [
+    ('grpc.max_send_message_length', max_msg_mb * 1024 * 1024),
+    ('grpc.max_receive_message_length', max_msg_mb * 1024 * 1024),
+    ('grpc.use_local_subchannel_pool', 1),  # Disable Nagle's algorithm
+]
+
+alpha_host = os.getenv('ALPHA_HOST', 'alpha')
+alpha_port = int(os.getenv('ALPHA_PORT', '50050'))
+backtester_host = os.getenv('BACKTESTER_HOST', 'backtester')
+backtester_port = int(os.getenv('BACKTESTER_PORT', '50052'))
+
+persistent_alpha_channel = grpc.insecure_channel(f"{alpha_host}:{alpha_port}", options=grpc_channel_options)
+persistent_alpha_stub = pb2_grpc.AlphaServiceStub(persistent_alpha_channel)
+persistent_backtester_channel = grpc.insecure_channel(f"{backtester_host}:{backtester_port}", options=grpc_channel_options)
+persistent_backtester_stub = pb2_grpc.BacktesterServiceStub(persistent_backtester_channel)
+
 
 def poll_backtester_until_done(timeout_sec: int = 300, interval_sec: int = 5) -> bool:
     global results_received, backtest_results
-    backtester_host = os.getenv('BACKTESTER_HOST', 'backtester')
-    backtester_port = int(os.getenv('BACKTESTER_PORT', '50052'))
-    stub = pb2_grpc.BacktesterServiceStub(grpc.insecure_channel(f"{backtester_host}:{backtester_port}"))
     elapsed = 0
     poll_start = time.perf_counter()
-    
     while elapsed < timeout_sec:
         try:
             # Time the pure gRPC call to get status
             call_start = time.perf_counter()
-            resp = stub.GetStatus(pb2.BacktestStatusRequest(), timeout=10)
+            resp = persistent_backtester_stub.GetStatus(pb2.BacktestStatusRequest(), timeout=10)
             call_elapsed = time.perf_counter() - call_start
             
             if resp.done:
@@ -49,19 +63,15 @@ def poll_backtester_until_done(timeout_sec: int = 300, interval_sec: int = 5) ->
 
 
 def send_execution_command_to_alpha():
-    alpha_host = os.getenv('ALPHA_HOST', 'alpha')
-    alpha_port = int(os.getenv('ALPHA_PORT', '50050'))
     max_retries = 10
     retry_delay = 2
     overall_start = time.perf_counter()
-    
     logger.info(f"[Master] Sending StartProcessing to Alpha at {alpha_host}:{alpha_port}")
     for attempt in range(max_retries):
         try:
             # Time the pure gRPC call
             call_start = time.perf_counter()
-            stub = pb2_grpc.AlphaServiceStub(grpc.insecure_channel(f"{alpha_host}:{alpha_port}"))
-            resp = stub.StartProcessing(pb2.StartProcessingRequest(), timeout=5)
+            resp = persistent_alpha_stub.StartProcessing(pb2.StartProcessingRequest(), timeout=5)
             call_elapsed = time.perf_counter() - call_start
             
             if resp.ack.ok:
