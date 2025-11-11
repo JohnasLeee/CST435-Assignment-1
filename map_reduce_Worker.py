@@ -16,7 +16,8 @@ class MapReduceServicer(mapreduce_pb2_grpc.MapReduceServicer):
 
     def FullProcessTask(self, request, context):
         try:
-            print(f"Received FullProcessTask {request.task_id} (content length: {len(request.input_content)})")
+            recv_time = time.time()
+            print(f"Received FullProcessTask {request.task_id} (content length: {len(request.input_content)}) at {recv_time:.6f}")
 
             # --- MAP: tokenize words ---
             words = request.input_content.lower().split()
@@ -33,7 +34,9 @@ class MapReduceServicer(mapreduce_pb2_grpc.MapReduceServicer):
                 mapreduce_pb2.KeyValue(key=word, value=str(count))
                 for word, count in word_counts.items()
             ]
-            print(f"Task {request.task_id} complete: {len(results)} unique words")
+            send_time = time.time()
+            print(f"Task {request.task_id} complete: {len(results)} unique words, sending response at {send_time:.6f}")
+            print(f"Worker communication times for task {request.task_id}: received at {recv_time:.6f}, sent at {send_time:.6f}")
             return mapreduce_pb2.MapResponse(task_id=request.task_id, intermediate_results=results)
 
         except Exception as e:

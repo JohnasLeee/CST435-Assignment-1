@@ -9,10 +9,11 @@ import gRPC_service_defination_pb2 as mapreduce_pb2
 import gRPC_service_defination_pb2_grpc as mapreduce_pb2_grpc
 
 WORKER_ADDRESSES = [
-    'worker1:50051',
-    'worker2:50052',
-    'worker2:50053',
+  'worker1:50051',
+  'worker2:50052',
+  '10.213.7.252:50053'
 ]
+
 INPUT_DIR = 'input_data'
 MAX_CHUNK_SIZE = 200000
 
@@ -67,9 +68,15 @@ def run_mapreduce():
         stub = stubs[worker_addr]
         request = mapreduce_pb2.MapRequest(task_id=str(task_id), input_content=text)
         try:
+            master_send_time = time.time()
             response = stub.FullProcessTask(request, timeout=120)
+            master_recv_time = time.time()
+            grpc_duration = master_recv_time - master_send_time
             partial_result = {kv.key: int(kv.value) for kv in response.intermediate_results}
             print(f"Task {task_id} done by {worker_addr} ({len(partial_result)} unique words)")
+            print(f"Master send time: {master_send_time:.6f}, receive time: {master_recv_time:.6f}")
+            print(f"Total gRPC round-trip time for task {task_id}: {grpc_duration:.4f} seconds")
+            # Note: Worker logs its own receive/send times. Check worker logs for detailed communication breakdown.
             return partial_result
         except grpc.RpcError as e:
             print(f"Task {task_id} failed on {worker_addr}: {e.details()}")
