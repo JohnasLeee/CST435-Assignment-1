@@ -27,6 +27,7 @@ service MapReduce {
 message MapRequest {
   string task_id = 1;       // A unique ID for this task.
   string input_content = 2; // The chunk of text to be processed.
+  double master_send_time = 3; // Timestamp when master sends the request.
 }
 
 // A simple key-value pair structure for intermediate map results.
@@ -40,6 +41,8 @@ message KeyValue {
 message MapResponse {
   string task_id = 1;
   repeated KeyValue intermediate_results = 2; // A list of key-value pairs.
+  double worker_recv_time = 3; // Timestamp when worker received the request.
+  double worker_send_time = 4; // Timestamp when worker sends the response.
 }
 
 

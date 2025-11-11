@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1dgRPC_service_defination.proto\x12\tmapreduce\"4\n\nMapRequest\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x15\n\rinput_content\x18\x02 \x01(\t\"&\n\x08KeyValue\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\"Q\n\x0bMapResponse\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x31\n\x14intermediate_results\x18\x02 \x03(\x0b\x32\x13.mapreduce.KeyValue\"3\n\rReduceRequest\x12\x12\n\nreduce_key\x18\x01 \x01(\t\x12\x0e\n\x06values\x18\x02 \x03(\t\":\n\x0eReduceResponse\x12\x12\n\nreduce_key\x18\x01 \x01(\t\x12\x14\n\x0cresult_value\x18\x02 \x01(\t2\xd0\x01\n\tMapReduce\x12:\n\x07MapTask\x12\x15.mapreduce.MapRequest\x1a\x16.mapreduce.MapResponse\"\x00\x12\x43\n\nReduceTask\x12\x18.mapreduce.ReduceRequest\x1a\x19.mapreduce.ReduceResponse\"\x00\x12\x42\n\x0f\x46ullProcessTask\x12\x15.mapreduce.MapRequest\x1a\x16.mapreduce.MapResponse\"\x00\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1dgRPC_service_defination.proto\x12\tmapreduce\"N\n\nMapRequest\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x15\n\rinput_content\x18\x02 \x01(\t\x12\x18\n\x10master_send_time\x18\x03 \x01(\x01\"&\n\x08KeyValue\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\"\x85\x01\n\x0bMapResponse\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x31\n\x14intermediate_results\x18\x02 \x03(\x0b\x32\x13.mapreduce.KeyValue\x12\x18\n\x10worker_recv_time\x18\x03 \x01(\x01\x12\x18\n\x10worker_send_time\x18\x04 \x01(\x01\"3\n\rReduceRequest\x12\x12\n\nreduce_key\x18\x01 \x01(\t\x12\x0e\n\x06values\x18\x02 \x03(\t\":\n\x0eReduceResponse\x12\x12\n\nreduce_key\x18\x01 \x01(\t\x12\x14\n\x0cresult_value\x18\x02 \x01(\t2\xd0\x01\n\tMapReduce\x12:\n\x07MapTask\x12\x15.mapreduce.MapRequest\x1a\x16.mapreduce.MapResponse\"\x00\x12\x43\n\nReduceTask\x12\x18.mapreduce.ReduceRequest\x1a\x19.mapreduce.ReduceResponse\"\x00\x12\x42\n\x0f\x46ullProcessTask\x12\x15.mapreduce.MapRequest\x1a\x16.mapreduce.MapResponse\"\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -32,15 +32,15 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'gRPC_service_defination_pb2
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_MAPREQUEST']._serialized_start=44
-  _globals['_MAPREQUEST']._serialized_end=96
-  _globals['_KEYVALUE']._serialized_start=98
-  _globals['_KEYVALUE']._serialized_end=136
-  _globals['_MAPRESPONSE']._serialized_start=138
-  _globals['_MAPRESPONSE']._serialized_end=219
-  _globals['_REDUCEREQUEST']._serialized_start=221
-  _globals['_REDUCEREQUEST']._serialized_end=272
-  _globals['_REDUCERESPONSE']._serialized_start=274
-  _globals['_REDUCERESPONSE']._serialized_end=332
-  _globals['_MAPREDUCE']._serialized_start=335
-  _globals['_MAPREDUCE']._serialized_end=543
+  _globals['_MAPREQUEST']._serialized_end=122
+  _globals['_KEYVALUE']._serialized_start=124
+  _globals['_KEYVALUE']._serialized_end=162
+  _globals['_MAPRESPONSE']._serialized_start=165
+  _globals['_MAPRESPONSE']._serialized_end=298
+  _globals['_REDUCEREQUEST']._serialized_start=300
+  _globals['_REDUCEREQUEST']._serialized_end=351
+  _globals['_REDUCERESPONSE']._serialized_start=353
+  _globals['_REDUCERESPONSE']._serialized_end=411
+  _globals['_MAPREDUCE']._serialized_start=414
+  _globals['_MAPREDUCE']._serialized_end=622
 # @@protoc_insertion_point(module_scope)
