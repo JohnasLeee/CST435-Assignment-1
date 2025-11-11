@@ -12,7 +12,8 @@ WORKER_ADDRESSES = [
   'worker1:50051',
   'worker2:50052',
   'worker3:50053',
-#   '10.213.7.252:50053'
+#   'host.docker.internal:50053'  # Use this if Arch worker is on same machine as Docker
+  '10.250.146.39:50053'  # Arch Linux WiFi IP on hotspot
 ]
 
 INPUT_DIR = 'input_data'
@@ -57,9 +58,12 @@ def run_mapreduce():
             ('grpc.max_send_message_length', 50 * 1024 * 1024),
             ('grpc.max_receive_message_length', 50 * 1024 * 1024),
         ]
-        channel = grpc.insecure_channel(addr, options=options)
-        stubs[addr] = mapreduce_pb2_grpc.MapReduceStub(channel)
-        print(f"Connected to {addr}")
+        try:
+            channel = grpc.insecure_channel(addr, options=options)
+            stubs[addr] = mapreduce_pb2_grpc.MapReduceStub(channel)
+            print(f"Connected to {addr}")
+        except Exception as e:
+            print(f"Failed to connect to {addr}: {e}")
 
     # 3. Send text chunks directly to workers for processing
     print("\n--- Distributing chunks to workers ---")
@@ -73,7 +77,11 @@ def run_mapreduce():
     def send_task(task_data):
         task_id, text = task_data
         worker_addr = WORKER_ADDRESSES[task_id % len(WORKER_ADDRESSES)]
-        stub = stubs[worker_addr]
+        stub = stubs.get(worker_addr)
+        
+        if not stub:
+            print(f"Task {task_id} skipped - no connection to {worker_addr}")
+            return {}, worker_addr, 0
         
         master_send_time = time.time()
         request = mapreduce_pb2.MapRequest(
@@ -105,7 +113,7 @@ def run_mapreduce():
             
             return partial_result, worker_addr, round_trip
         except grpc.RpcError as e:
-            print(f"Task {task_id} failed on {worker_addr}: {e.details()}")
+            print(f"Task {task_id} failed on {worker_addr}: {e.code()} - {e.details()}")
             return {}, worker_addr, 0
 
     map_tasks = list(enumerate(input_splits))
@@ -157,6 +165,9 @@ def run_mapreduce():
             print(f"\n  Total Round-Trip Time:")
             print(f"     Average: {sum(round_times)/len(round_times):.4f} s")
             print(f"     Total: {sum(round_times):.4f} s")
+        else:
+            print(f"\nWorker: {worker_addr}")
+            print(f"  WARNING: No tasks completed (connection failed or all tasks errored)")
     print("--------------------------------------------------")
 
     '''

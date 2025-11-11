@@ -55,11 +55,16 @@ def serve():
         sys.exit(1)
     port = sys.argv[1]
 
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    # Set large message size limits for the server
+    options = [
+        ('grpc.max_send_message_length', 50 * 1024 * 1024),
+        ('grpc.max_receive_message_length', 50 * 1024 * 1024),
+    ]
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10), options=options)
     mapreduce_pb2_grpc.add_MapReduceServicer_to_server(MapReduceServicer(), server)
     server.add_insecure_port(f'[::]:{port}')
     server.start()
-    print(f"Worker started on port {port}. Ready for tasks.", flush=True)
+    print(f"Worker started on port {port} with 50MB message limits. Ready for tasks.", flush=True)
     try:
         while True:
             time.sleep(1)
