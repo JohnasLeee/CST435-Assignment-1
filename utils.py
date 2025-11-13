@@ -17,20 +17,25 @@ def get_SP500() -> pd.DataFrame:
     print("Fetching S&P 500 company list from Wikipedia...")
     response = requests.get('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies', 
                         headers=headers)
-
-    if response.status_code == 200:
-        # Use StringIO to avoid deprecation warning
-        table = pd.read_html(StringIO(response.text))
-    else:
-        print(f"Failed to fetch data. Status code: {response.status_code}")
-        exit()
-    sp500 = table[0]
-    tickers = sp500['Symbol'].to_list()
-
+    
+    response.raise_for_status()
+    tables = pd.read_html(StringIO(response.text))
+    
+    # Find table with "Symbol" column
+    sp500 = None
+    for tbl in tables:
+        if 'Symbol' in tbl.columns:
+            sp500 = tbl
+            break
+    
+    if sp500 is None:
+        raise RuntimeError("Could not locate S&P 500 table on Wikipedia")
+    
+    tickers = sp500['Symbol'].astype(str).tolist()
     print(f"Number of tickers: {len(tickers)}")
 
-    # Sometimes tickers have dots (BRK.B, BF.B), which yfinance expects as hyphens
-    tickers = [t.replace('.', '-') for t in tickers] 
+    # Convert dot notation (e.g., BRK.B) to hyphen for yfinance compatibility
+    tickers = [t.replace('.', '-') for t in tickers]
 
     # Download data with error handling
     print("Downloading stock data...")
@@ -45,7 +50,8 @@ def get_SP500() -> pd.DataFrame:
             interval="1d",
             group_by='ticker',  # separate each symbol in columns
             threads=True,       # multi-threaded for speed
-            progress=True       # show progress bar
+            progress=True,      # show progress bar
+            auto_adjust=True    # explicitly set to avoid warning
         )
         
         # Check which tickers were successfully downloaded
