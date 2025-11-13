@@ -12,12 +12,11 @@ WORKER_ADDRESSES = [
   'worker1:50051',
   'worker2:50052',
   'worker3:50053',
-#   'host.docker.internal:50053'  # Use this if Arch worker is on same machine as Docker
-  '10.250.146.39:50053'  # Arch Linux WiFi IP on hotspot
+#   '10.213.4.148:50053'  # Direct connection to Arch Linux worker
 ]
 
 INPUT_DIR = 'input_data'
-MAX_CHUNK_SIZE = 200000000
+MAX_CHUNK_SIZE = 200000
 
 
 def split_text_into_chunks(text, max_size):
@@ -188,3 +187,11 @@ def run_mapreduce():
 
 if __name__ == "__main__":
     run_mapreduce()
+
+    # Prevent the master container from shutting down
+    print("Master container is now idle. Press Ctrl+C to exit.")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Shutting down master container.")

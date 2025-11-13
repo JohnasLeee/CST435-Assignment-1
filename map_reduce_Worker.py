@@ -57,7 +57,7 @@ def serve():
 
     # Set large message size limits for the server
     options = [
-        ('grpc.max_send_message_length', 50 * 1024 * 1024),
+        ('grpc.max_send_message_length',   50  * 1024 * 1024),
         ('grpc.max_receive_message_length', 50 * 1024 * 1024),
     ]
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10), options=options)

@@ -14,7 +14,6 @@ services:
       - "50052:50052"
     networks:
       - mapreduce-network
-
   worker3:
     build: .
     command: ["python", "map_reduce_Worker.py", "50053"]
@@ -22,6 +21,8 @@ services:
       - "50053:50053"
     networks:
       - mapreduce-network
+
+
   master:
     build: .
     command: ["python", "map_reduce_Master_docker.py"]
@@ -33,6 +34,8 @@ services:
       - worker3
     networks:
       - mapreduce-network
+    # extra_hosts:
+    #   - "arch-worker:host-gateway"  # Maps to Windows host IP
 
 networks:
   mapreduce-network:
