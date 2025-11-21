@@ -5,9 +5,28 @@ import seaborn as sns
 import yfinance as yf
 import requests
 from io import StringIO
+import os
+import pickle
+from pathlib import Path
+
+# Cache configuration
+CACHE_DIR = Path("./data_cache")
+CACHE_FILE = CACHE_DIR / "sp500_data.pkl"
 
 # Get the list of S&P 500 tickers from Wikipedia
-def get_SP500() -> pd.DataFrame:
+def get_SP500(use_cache: bool = True) -> pd.DataFrame:
+    # Try loading from cache first
+    if use_cache and CACHE_FILE.exists():
+        try:
+            print(f"[DEBUG] Loading cached S&P 500 data from {CACHE_FILE}")
+            with open(CACHE_FILE, 'rb') as f:
+                data = pickle.load(f)
+            print(f"[DEBUG] Cache loaded! Shape: {data.shape}, Range: {data.index[0]} to {data.index[-1]}")
+            return data
+        except Exception as e:
+            print(f"[DEBUG] Cache load failed: {e}. Fetching fresh data...")
+    else:
+        print("[DEBUG] Cache disabled or not found. Fetching fresh data...")
     # Add headers to avoid 403 Forbidden error
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -67,6 +86,17 @@ def get_SP500() -> pd.DataFrame:
         # Show basic info about the data
         print(f"\nData columns (first 10): {list(data.columns)[:10]}")
         print(f"Date range: {data.index[0]} to {data.index[-1]}")
+        
+        # Save to cache
+        if use_cache:
+            try:
+                CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                with open(CACHE_FILE, 'wb') as f:
+                    pickle.dump(data, f)
+                print(f"[DEBUG] Data cached to {CACHE_FILE}")
+            except Exception as e:
+                print(f"[DEBUG] Cache save failed: {e}")
+        
         return data
         
     except Exception as e:

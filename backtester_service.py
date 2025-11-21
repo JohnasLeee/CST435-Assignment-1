@@ -25,6 +25,13 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# Connection pooling for performance
+http_session = requests.Session()
+adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=10, max_retries=3)
+http_session.mount('http://', adapter)
+http_session.mount('https://', adapter)
+logger.info("[DEBUG] Backtester: HTTP session with connection pooling initialized")
+
 
 class BacktesterCore:
     """Core backtesting computation logic"""
@@ -41,11 +48,16 @@ class BacktesterCore:
                 logger.info(f"[Backtester] Fetching returns from Alpha Service (attempt {attempt+1}/{max_retries})...")
                 
                 start_time = time.perf_counter()
-                response = requests.get(url, timeout=120)
+                response = http_session.get(url, timeout=120, headers={'Accept-Encoding': 'gzip, deflate'})
                 response.raise_for_status()
                 call_elapsed = time.perf_counter() - start_time
                 
+                # Calculate payload size and transfer speed
+                payload_size_mb = len(response.content) / (1024 * 1024)
+                transfer_speed = payload_size_mb / call_elapsed if call_elapsed > 0 else 0
+                
                 logger.info(f"[TIMING] Backtester -> Alpha (pure HTTP call, no retries): {call_elapsed:.3f} seconds")
+                logger.info(f"[DEBUG] Received {payload_size_mb:.2f} MB at {transfer_speed:.2f} MB/s")
                 
                 # Measure overall elapsed time including setup
                 overall_elapsed = time.perf_counter() - start_time
@@ -339,7 +351,7 @@ class BacktesterCore:
             logger.info(f"[Backtester] Sending results to Master at {master_host}:{master_port}")
             
             start_time = time.perf_counter()
-            response = requests.post(url, json=results, timeout=30)
+            response = http_session.post(url, json=results, timeout=30)
             response.raise_for_status()
             call_elapsed = time.perf_counter() - start_time
             

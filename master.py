@@ -17,6 +17,13 @@ app = Flask(__name__)
 results_received = False
 backtest_results = None
 
+# Connection pooling for performance
+http_session = requests.Session()
+adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=10, max_retries=3)
+http_session.mount('http://', adapter)
+http_session.mount('https://', adapter)
+logger.info("[DEBUG] Master: HTTP session with connection pooling initialized")
+
 
 @app.route('/results', methods=['POST'])
 def receive_results():
@@ -50,23 +57,27 @@ def send_execution_command_to_alpha():
     
     logger.info(f"[Master] Sending execution command to Alpha Service at {alpha_host}:{alpha_port}")
     
-    start_time = time.time()
+    overall_start_time = time.time()
     
     for attempt in range(max_retries):
         try:
             url = f"http://{alpha_host}:{alpha_port}/execute"
-            response = requests.post(url, json={"command": "start_processing"}, timeout=5)
+            
+            # Measure only the actual HTTP call
+            call_start = time.time()
+            response = http_session.post(url, json={"command": "start_processing"}, timeout=5)
+            call_elapsed = time.time() - call_start
             
             if response.status_code == 200:
                 result = response.json()
                 logger.info(f"[Master] Alpha Service acknowledged receipt of execution code: {result}")
                 print(f"[Master] Alpha Service confirmed: {result.get('message', 'Execution started')}")
                 
-                call_elapsed = time.time() - start_time
-                overall_elapsed = time.time() - start_time
+                overall_elapsed = time.time() - overall_start_time
                 
                 logger.info(f"[TIMING] Master -> Alpha (pure REST call, no retries): {call_elapsed:.3f} seconds")
                 logger.info(f"[TIMING] Master -> Alpha (with retries/setup, REST): {overall_elapsed:.3f} seconds")
+                logger.info(f"[DEBUG] Took {attempt + 1} connection attempts")
                 
                 return True
             else:

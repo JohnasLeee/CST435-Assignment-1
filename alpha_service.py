@@ -166,9 +166,44 @@ class AlphaService:
         # Store computed data for retrieval
         self.alpha_data: Optional[pd.DataFrame] = None
         self.returns_data: Optional[pd.DataFrame] = None
+        self.raw_data: Optional[pd.DataFrame] = None  # Cache raw data
         
         logger.info(f"[AlphaService] Initialized with protocol: {self.protocol}")
         logger.info(f"[AlphaService] Normalizer endpoint: {self.normalizer_host}:{self.normalizer_port}")
+    
+    def preload_data_at_startup(self) -> bool:
+        """Pre-load and cache all data at startup for warm start performance"""
+        logger.info("[AlphaService] ===== PRE-LOADING DATA AT STARTUP =====")
+        import time
+        start_time = time.time()
+        
+        try:
+            # Get S&P 500 data (will use cache if available)
+            logger.info("[AlphaService] Loading S&P 500 data...")
+            self.raw_data = utils.get_SP500(use_cache=True)
+            
+            if self.raw_data is None:
+                logger.error("[AlphaService] Failed to load S&P 500 data")
+                return False
+            
+            # Pre-calculate returns
+            logger.info("[AlphaService] Pre-calculating returns...")
+            self.returns_data = self.calculate_returns_data(self.raw_data)
+            
+            # Pre-calculate alpha data
+            logger.info("[AlphaService] Pre-calculating alpha data...")
+            self.alpha_data = utils.get_negative_rank_returns_only(self.raw_data)
+            
+            elapsed = time.time() - start_time
+            logger.info(f"[AlphaService] ===== DATA PRE-LOADED in {elapsed:.2f}s =====")
+            logger.info(f"[AlphaService] Alpha data shape: {self.alpha_data.shape}")
+            logger.info(f"[AlphaService] Returns data shape: {self.returns_data.shape}")
+            logger.info("[AlphaService] Ready for FAST request processing (warm start enabled)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"[AlphaService] Error pre-loading data: {e}")
+            return False
     
     def connect_to_normalizer(self) -> bool:
         """Connect to Normalizer Service"""
@@ -215,8 +250,14 @@ class AlphaService:
             return None
     
     def calculate_alpha_data(self) -> pd.DataFrame:
-        """Calculate negative rank returns using utils"""
-        logger.info("[AlphaService] Calculating alpha data...")
+        """Get pre-calculated alpha data (or calculate if not cached)"""
+        # If data already pre-loaded at startup, return it immediately
+        if self.alpha_data is not None:
+            logger.info("[AlphaService] Using pre-loaded alpha data (WARM START)")
+            return self.alpha_data
+        
+        # Fallback: calculate on-demand (slower path)
+        logger.info("[AlphaService] Calculating alpha data on-demand (cold start)...")
         
         try:
             # Get S&P 500 data
@@ -239,6 +280,8 @@ class AlphaService:
                 logger.error("[AlphaService] Failed to calculate negative rank returns")
                 return None
             
+            # Cache for future requests
+            self.alpha_data = alpha_data
             logger.info(f"[AlphaService] Alpha data calculated: {alpha_data.shape}")
             return alpha_data
             
@@ -274,7 +317,11 @@ class AlphaService:
                 "data": data_matrix
             }
             
+            # Debug: check payload size
+            import json
+            payload_size_mb = len(json.dumps(matrix_data)) / (1024 * 1024)
             logger.info(f"[AlphaService] Matrix prepared: {len(dates)} dates, {len(stocks)} stocks")
+            logger.info(f"[DEBUG] Payload size: {payload_size_mb:.2f} MB (this is why communication is slow!)")
             return matrix_data
             
         except Exception as e:
@@ -288,7 +335,10 @@ class AlphaService:
             return None
         
         try:
-            logger.info("[AlphaService] Sending data to Normalizer Service...")
+            import json
+            payload_json = json.dumps(matrix_data)
+            payload_size_mb = len(payload_json) / (1024 * 1024)
+            logger.info(f"[AlphaService] Sending {payload_size_mb:.2f} MB payload to Normalizer...")
             
             # Measure total time including setup
             overall_start_time = time.time()
@@ -301,8 +351,10 @@ class AlphaService:
             overall_elapsed = time.time() - overall_start_time
 
             if response and isinstance(response, dict):
+                transfer_speed = payload_size_mb / call_elapsed if call_elapsed > 0 else 0
                 logger.info(f"[TIMING] Alpha -> Normalizer (pure REST call, no retries): {call_elapsed:.3f} seconds")
                 logger.info(f"[TIMING] Alpha -> Normalizer (with setup, REST): {overall_elapsed:.3f} seconds")
+                logger.info(f"[DEBUG] Transfer speed: {transfer_speed:.2f} MB/s (slow = network/serialization bottleneck)")
                 logger.info("[AlphaService] Received normalized weights from Normalizer Service")
                 logger.info("[AlphaService] Normalizer will send weights to backtester directly")
                 return response
@@ -349,10 +401,16 @@ class AlphaService:
     def process_alpha_pipeline(self) -> Optional[Dict[str, Any]]:
         """Complete alpha processing pipeline"""
         logger.info("[AlphaService] Starting alpha processing pipeline...")
+        import time
+        pipeline_start = time.time()
         
         try:
-            # Step 1: Calculate alpha data
+            # Step 1: Get alpha data (uses pre-loaded data for warm start)
+            data_start = time.time()
             alpha_data = self.calculate_alpha_data()
+            data_elapsed = time.time() - data_start
+            logger.info(f"[AlphaService] Step 1 completed in {data_elapsed:.3f}s (data retrieval)")
+            
             if alpha_data is None:
                 return None
             
@@ -360,16 +418,29 @@ class AlphaService:
             self.alpha_data = alpha_data
             
             # Step 2: Prepare matrix data
+            prep_start = time.time()
             matrix_data = self.prepare_matrix_data(alpha_data)
+            prep_elapsed = time.time() - prep_start
+            logger.info(f"[AlphaService] Step 2 completed in {prep_elapsed:.3f}s (data preparation)")
+            
             if matrix_data is None:
                 return None
             
             # Step 3: Connect to Normalizer Service
+            connect_start = time.time()
             if not self.connect_to_normalizer():
                 return None
+            connect_elapsed = time.time() - connect_start
+            logger.info(f"[AlphaService] Step 3 completed in {connect_elapsed:.3f}s (connection)")
             
             # Step 4: Send to Normalizer Service
+            send_start = time.time()
             result = self.send_to_normalizer(matrix_data)
+            send_elapsed = time.time() - send_start
+            logger.info(f"[AlphaService] Step 4 completed in {send_elapsed:.3f}s (send to normalizer)")
+            
+            pipeline_elapsed = time.time() - pipeline_start
+            logger.info(f"[AlphaService] ===== PIPELINE TOTAL: {pipeline_elapsed:.3f}s =====")
             
             if result:
                 logger.info("[AlphaService] Alpha processing pipeline completed successfully")
@@ -396,6 +467,11 @@ class AlphaService:
         
         # Set instance for HTTP handler
         alpha_service_instance = self
+        
+        # PRE-LOAD DATA FOR WARM START (critical for performance)
+        logger.info("[AlphaService] Pre-loading data before starting server...")
+        if not self.preload_data_at_startup():
+            logger.error("[AlphaService] Failed to pre-load data, continuing anyway...")
         
         # Start Flask server in a separate thread
         alpha_port = int(os.getenv('ALPHA_PORT', '8081'))
